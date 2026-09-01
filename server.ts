@@ -28,9 +28,20 @@ const isProduction = process.env.NODE_ENV === 'production';
 async function startServer() {
   const app = express();
 
-  // Android & Web CORS Configuration
+  // Android & Web CORS Configuration for shop.avinia.ir and api.shop.avinia.ir
+  const defaultAllowedOrigins = [
+    'https://shop.avinia.ir',
+    'http://shop.avinia.ir',
+    'https://api.shop.avinia.ir',
+    'http://api.shop.avinia.ir',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ];
+
   const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
-  const allowedOrigins = allowedOriginsEnv
+  const configuredOrigins = allowedOriginsEnv
     ? allowedOriginsEnv.split(',').map((origin) => origin.trim())
     : ['*'];
 
@@ -38,7 +49,12 @@ async function startServer() {
     cors({
       origin: (origin, callback) => {
         // Allow mobile apps (which have no origin or file://) and configured web origins
-        if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        if (
+          !origin ||
+          configuredOrigins.includes('*') ||
+          configuredOrigins.includes(origin) ||
+          defaultAllowedOrigins.includes(origin)
+        ) {
           callback(null, true);
         } else {
           callback(null, true);
@@ -46,7 +62,7 @@ async function startServer() {
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
     })
   );
 

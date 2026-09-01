@@ -16,6 +16,7 @@ import {
   Check,
 } from 'lucide-react';
 import { Product, Category, ProductType } from '../types/api.js';
+import { resolveMediaUrl } from '../config/api.js';
 
 interface ProductCatalogProps {
   products: Product[];
@@ -229,7 +230,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               <div>
                 <div className="relative h-44 bg-[#F9F8F6] border-b border-[#F0EEE8] overflow-hidden">
                   <img
-                    src={product.image_url || 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'}
+                    src={resolveMediaUrl(product.image_url) || 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'}
                     alt={product.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     referrerPolicy="no-referrer"

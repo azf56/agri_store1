@@ -61,7 +61,11 @@ export const buildAbsoluteUploadUrl = (req: Request, relativePath: string): stri
     return relativePath;
   }
   const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
-  const baseUrlEnv = process.env.BASE_URL || process.env.APP_URL || process.env.SERVER_URL;
+  const baseUrlEnv =
+    process.env.BASE_URL ||
+    process.env.APP_URL ||
+    process.env.SERVER_URL ||
+    (process.env.NODE_ENV === 'production' ? 'https://api.shop.avinia.ir' : '');
   if (baseUrlEnv) {
     return `${baseUrlEnv.replace(/\/$/, '')}${cleanPath}`;
   }
