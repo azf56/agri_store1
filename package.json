@@ -9,6 +9,7 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "create-admin": "tsx server/scripts/createAdmin.ts",
+    "db:sync": "tsx server/scripts/syncDb.ts",
     "seed": "tsx server/scripts/seed.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

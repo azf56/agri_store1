@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import cors from 'cors';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import categoriesRouter from './server/routes/categories.js';
@@ -18,10 +17,7 @@ import { Category, Product, User } from './server/models/index.js';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Hardcode PORT to 3000 as strictly required by the container reverse proxy infrastructure
+// Port configuration (defaults to 3000)
 const PORT = 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
