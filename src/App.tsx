@@ -1,0 +1,505 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Header, ActiveTabType } from './components/Header.js';
+import { DatabaseStatusCard } from './components/DatabaseStatusCard.js';
+import { ProductCatalog } from './components/ProductCatalog.js';
+import { ProductModal } from './components/ProductModal.js';
+import { CategoryManager } from './components/CategoryManager.js';
+import { AuthManager } from './components/AuthManager.js';
+import { CartManager } from './components/CartManager.js';
+import { OrdersHistory } from './components/OrdersHistory.js';
+import { AdminPanel } from './components/AdminPanel.js';
+import { ApiWorkbench } from './components/ApiWorkbench.js';
+import { CpanelGuide } from './components/CpanelGuide.js';
+import { Product, Category, SystemStatusResponse, User, CartData, Order } from './types/api.js';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<ActiveTabType>('catalog');
+  
+  // Authentication states
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    return localStorage.getItem('agri_jwt_token') || null;
+  });
+
+  // Data states
+  const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [cart, setCart] = useState<CartData | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  
+  // Loading states
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingCart, setLoadingCart] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedType, setSelectedType] = useState('all');
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [sortBy, setSortBy] = useState('newest');
+
+  // Modals
+  const [productModalOpen, setProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Fetch Cart from MySQL API
+  const fetchCart = useCallback(async (token: string) => {
+    setLoadingCart(true);
+    try {
+      const res = await fetch('/api/v1/cart', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setCart(json.data);
+        }
+      } else if (res.status === 401) {
+        setCart(null);
+      }
+    } catch (err) {
+      console.error('Error fetching cart:', err);
+    } finally {
+      setLoadingCart(false);
+    }
+  }, []);
+
+  // Fetch Orders from MySQL API
+  const fetchOrders = useCallback(async (token: string) => {
+    setLoadingOrders(true);
+    try {
+      const res = await fetch('/api/v1/orders', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          setOrders(json.data);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, []);
+
+  // Verify and fetch user from DB if token exists
+  const verifyTokenAndFetchMe = useCallback(async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.user) {
+          setCurrentUser(data.user);
+          fetchCart(token);
+          fetchOrders(token);
+          return;
+        }
+      }
+      // Token invalid or expired
+      localStorage.removeItem('agri_jwt_token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setCart(null);
+      setOrders([]);
+    } catch {
+      // Network error or offline
+    }
+  }, [fetchCart, fetchOrders]);
+
+  // Check auth on startup
+  useEffect(() => {
+    if (authToken) {
+      verifyTokenAndFetchMe(authToken);
+    }
+  }, [authToken, verifyTokenAndFetchMe]);
+
+  const handleLoginSuccess = (token: string, user: User) => {
+    setAuthToken(token);
+    setCurrentUser(user);
+    localStorage.setItem('agri_jwt_token', token);
+    fetchCart(token);
+    fetchOrders(token);
+  };
+
+  const handleLogout = () => {
+    setAuthToken(null);
+    setCurrentUser(null);
+    setCart(null);
+    setOrders([]);
+    localStorage.removeItem('agri_jwt_token');
+  };
+
+  const handleUserUpdated = (user: User) => {
+    setCurrentUser(user);
+  };
+
+  // Fetch System & Database status
+  const fetchSystemStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const res = await fetch('/api/system/status');
+      if (res.ok) {
+        const data = await res.json();
+        setSystemStatus(data);
+      }
+    } catch (err) {
+      console.error('Error fetching system status:', err);
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
+
+  // Fetch Categories from MySQL API
+  const fetchCategories = useCallback(async () => {
+    setLoadingCategories(true);
+    try {
+      const res = await fetch('/api/categories');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          setCategories(json.data);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching categories:', err);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, []);
+
+  // Fetch Products with filters from MySQL API
+  const fetchProducts = useCallback(async () => {
+    setLoadingProducts(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedCategory !== 'all') params.append('category_id', selectedCategory);
+      if (selectedType !== 'all') params.append('product_type', selectedType);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      if (inStockOnly) params.append('in_stock', 'true');
+      if (sortBy) params.append('sort', sortBy);
+      params.append('limit', '50');
+
+      const res = await fetch(`/api/products?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          setProducts(json.data);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }, [selectedCategory, selectedType, searchQuery, inStockOnly, sortBy]);
+
+  // Initial load
+  useEffect(() => {
+    fetchSystemStatus();
+    fetchCategories();
+  }, [fetchSystemStatus, fetchCategories]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // Handler for refreshing all data
+  const handleRefreshAll = () => {
+    fetchSystemStatus();
+    fetchCategories();
+    fetchProducts();
+    if (authToken) {
+      verifyTokenAndFetchMe(authToken);
+      fetchCart(authToken);
+      fetchOrders(authToken);
+    }
+  };
+
+  // Cart Handlers
+  const handleAddToCart = async (productId: number, quantity: number = 1) => {
+    if (!authToken) {
+      alert('برای افزودن کالا به سبد خرید دیتابیس، لطفاً ابتدا وارد حساب کاربری خود شوید.');
+      setActiveTab('auth');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/v1/cart', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ product_id: productId, quantity }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setCart(data.data);
+        fetchSystemStatus();
+      } else {
+        alert(data.message || 'خطا در افزودن کالا به سبد خرید');
+      }
+    } catch (err: any) {
+      alert(`خطا در ارتباط با سرور: ${err.message}`);
+    }
+  };
+
+  const handleUpdateCartQty = async (itemId: number, newQty: number) => {
+    if (!authToken) return;
+    const res = await fetch(`/api/v1/cart/${itemId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ quantity: newQty }),
+    });
+    const data = await res.json();
+    if (data.success && data.data) {
+      setCart(data.data);
+    } else {
+      throw new Error(data.message || 'خطا در تغییر تعداد');
+    }
+  };
+
+  const handleRemoveCartItem = async (itemId: number) => {
+    if (!authToken) return;
+    const res = await fetch(`/api/v1/cart/${itemId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
+    const data = await res.json();
+    if (data.success && data.data) {
+      setCart(data.data);
+      fetchSystemStatus();
+    } else {
+      throw new Error(data.message || 'خطا در حذف آیتم');
+    }
+  };
+
+  const handleClearCart = async () => {
+    if (!authToken) return;
+    if (!confirm('آیا از تخلیه کامل سبد خرید در پایگاه داده اطمینان دارید؟')) return;
+    const res = await fetch('/api/v1/cart', {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+      },
+    });
+    const data = await res.json();
+    if (data.success && data.data) {
+      setCart(data.data);
+      fetchSystemStatus();
+    } else {
+      throw new Error(data.message || 'خطا در تخلیه سبد');
+    }
+  };
+
+  // Place Order Handler with Transaction
+  const handlePlaceOrder = async (shippingAddress: string): Promise<boolean> => {
+    if (!authToken) {
+      setActiveTab('auth');
+      return false;
+    }
+
+    const res = await fetch('/api/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ shipping_address: shippingAddress }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      // Refresh cart, orders, products (for stock decrement) and status
+      fetchCart(authToken);
+      fetchOrders(authToken);
+      fetchProducts();
+      fetchSystemStatus();
+      setActiveTab('orders');
+      return true;
+    } else {
+      throw new Error(data.message || 'خطا در ثبت تراکنشی سفارش');
+    }
+  };
+
+  // Product CRUD Handlers
+  const handleOpenAddProduct = () => {
+    setEditingProduct(null);
+    setProductModalOpen(true);
+  };
+
+  const handleOpenEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setProductModalOpen(true);
+  };
+
+  const handleDeleteProduct = async (id: number, name: string) => {
+    if (!confirm(`آیا از حذف محصول «${name}» از پایگاه داده اطمینان دارید؟`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        handleRefreshAll();
+      } else {
+        alert(data.message || 'خطا در حذف محصول');
+      }
+    } catch (err: any) {
+      alert(`خطا در ارتباط با سرور: ${err.message}`);
+    }
+  };
+
+  const cartItemsCount = cart?.summary?.total_quantity || 0;
+
+  return (
+    <div dir="rtl" className="min-h-screen bg-[#F4F1EA] text-[#3C3A33] flex flex-col font-sans selection:bg-[#8BA888]/40 selection:text-[#2D4F3E]">
+      
+      {/* Top Navbar */}
+      <Header
+        status={systemStatus}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentUser={currentUser}
+        cartCount={cartItemsCount}
+        onRefresh={handleRefreshAll}
+        loading={loadingStatus || loadingProducts || loadingCategories || loadingCart}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        {/* Database Status & Health Monitor Card */}
+        <DatabaseStatusCard
+          status={systemStatus}
+          onRefresh={handleRefreshAll}
+          onSeedSuccess={handleRefreshAll}
+        />
+
+        {/* Dynamic Tab Views */}
+        {activeTab === 'catalog' && (
+          <ProductCatalog
+            products={products}
+            categories={categories}
+            loading={loadingProducts}
+            onAddProduct={handleOpenAddProduct}
+            onEditProduct={handleOpenEditProduct}
+            onDeleteProduct={handleDeleteProduct}
+            onAddToCart={handleAddToCart}
+            selectedCategory={selectedCategory}
+            setSelectedCategory={setSelectedCategory}
+            selectedType={selectedType}
+            setSelectedType={setSelectedType}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            inStockOnly={inStockOnly}
+            setInStockOnly={setInStockOnly}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+          />
+        )}
+
+        {activeTab === 'cart' && (
+          <CartManager
+            cart={cart}
+            loading={loadingCart}
+            currentUser={currentUser}
+            authToken={authToken}
+            onRefreshCart={() => authToken && fetchCart(authToken)}
+            onUpdateQuantity={handleUpdateCartQty}
+            onRemoveItem={handleRemoveCartItem}
+            onClearCart={handleClearCart}
+            onPlaceOrder={handlePlaceOrder}
+            onNavigateToCatalog={() => setActiveTab('catalog')}
+            onNavigateToAuth={() => setActiveTab('auth')}
+          />
+        )}
+
+        {activeTab === 'orders' && (
+          <OrdersHistory
+            orders={orders}
+            loading={loadingOrders}
+            currentUser={currentUser}
+            authToken={authToken}
+            onRefreshOrders={() => authToken && fetchOrders(authToken)}
+            onNavigateToCatalog={() => setActiveTab('catalog')}
+            onNavigateToAuth={() => setActiveTab('auth')}
+          />
+        )}
+
+        {activeTab === 'admin' && (
+          <AdminPanel
+            user={currentUser}
+            token={authToken}
+            categories={categories}
+            onRefreshCatalog={handleRefreshAll}
+            onNavigateToAuth={() => setActiveTab('auth')}
+          />
+        )}
+
+        {activeTab === 'categories' && (
+          <CategoryManager
+            categories={categories}
+            loading={loadingCategories}
+            onRefresh={handleRefreshAll}
+          />
+        )}
+
+        {activeTab === 'auth' && (
+          <AuthManager
+            currentUser={currentUser}
+            authToken={authToken}
+            onLoginSuccess={handleLoginSuccess}
+            onLogout={handleLogout}
+            onUserUpdated={handleUserUpdated}
+          />
+        )}
+
+        {activeTab === 'api-tester' && <ApiWorkbench />}
+
+        {activeTab === 'cpanel-guide' && <CpanelGuide />}
+
+      </main>
+
+      {/* Add / Edit Product Modal */}
+      <ProductModal
+        isOpen={productModalOpen}
+        onClose={() => setProductModalOpen(false)}
+        onSaveSuccess={handleRefreshAll}
+        product={editingProduct}
+        categories={categories}
+      />
+
+      {/* Footer */}
+      <footer className="bg-[#EBE7DE] border-t border-[#DCD7CB] py-5 mt-12 text-center text-xs text-[#6B685E]">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>سامانه جامع مدیریت و فروش نهاده‌های کشاورزی (کود، سم، بذر) — Express.js + Sequelize ORM</span>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#A2D9A1] inline-block"></span>
+            <span className="text-[#2D4F3E] font-medium">سبد خرید و تراکنش سفارشات MySQL • احراز هویت امن JWT</span>
+          </div>
+        </div>
+      </footer>
+
+    </div>
+  );
+}
+

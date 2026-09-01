@@ -1,0 +1,6 @@
+{
+  "name": "فروشگاه آنلاین نهاده‌های کشاورزی",
+  "description": "سامانه فروش اینترنتی کود، سم و بذر کشاورزی با پایگاه داده MySQL و Sequelize ORM",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
