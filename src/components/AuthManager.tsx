@@ -18,6 +18,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { User, AuthResponse } from '../types/api.js';
+import { apiFetch } from '../config/api.js';
 
 interface AuthManagerProps {
   currentUser: User | null;
@@ -76,7 +77,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      const res = await fetch('/api/auth/users');
+      const res = await apiFetch('/api/auth/users');
       const data = await res.json();
       if (data.success && data.users) {
         setUsersList(data.users);
@@ -125,7 +126,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +164,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -194,7 +195,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
     if (!authToken) return;
     setInspectingMe(true);
     try {
-      const res = await fetch('/api/auth/me', {
+      const res = await apiFetch('/api/auth/me', {
         headers: {
           'Authorization': `Bearer ${authToken}`,
         },
@@ -228,7 +229,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
     setSuccessMsg(null);
 
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await apiFetch('/api/auth/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

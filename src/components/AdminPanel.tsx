@@ -33,6 +33,7 @@ import {
   OrderStatus,
   AdminDashboardStats,
 } from '../types/api';
+import { apiFetch, resolveMediaUrl } from '../config/api';
 
 interface AdminPanelProps {
   user: User | null;
@@ -113,7 +114,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLoadingStats(true);
     setStatsError(null);
     try {
-      const res = await fetch('/api/v1/admin/dashboard/stats', {
+      const res = await apiFetch('/api/v1/admin/dashboard/stats', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -142,7 +143,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (ordersSearch.trim()) params.append('search', ordersSearch.trim());
       params.append('limit', '50');
 
-      const res = await fetch(`/api/v1/admin/orders?${params.toString()}`, {
+      const res = await apiFetch(`/api/v1/admin/orders?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -164,7 +165,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!token || !isAdmin) return;
     setLoadingProducts(true);
     try {
-      const res = await fetch('/api/v1/products?limit=100', {
+      const res = await apiFetch('/api/v1/products?limit=100', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -199,7 +200,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!token) return;
     setUpdatingOrderId(orderId);
     try {
-      const res = await fetch(`/api/v1/admin/orders/${orderId}/status`, {
+      const res = await apiFetch(`/api/v1/admin/orders/${orderId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -303,7 +304,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       
       const method = editingProduct ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -342,7 +343,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/v1/admin/products/${product.id}`, {
+      const res = await apiFetch(`/api/v1/admin/products/${product.id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -375,7 +376,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         : '/api/v1/admin/categories';
       const method = editingCategory ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -414,7 +415,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!window.confirm(`آیا از حذف دسته‌بندی "${cat.name}" اطمینان دارید؟`)) return;
 
     try {
-      const res = await fetch(`/api/v1/admin/categories/${cat.id}`, {
+      const res = await apiFetch(`/api/v1/admin/categories/${cat.id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,

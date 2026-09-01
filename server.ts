@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
@@ -121,6 +122,15 @@ async function startServer() {
     });
   });
 
+  // 404 JSON handler for any unmatched /api routes (prevents returning HTML to API callers)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      success: false,
+      message: `مسیر API یافت نشد: ${req.method} ${req.originalUrl}`,
+      error: 'Not Found',
+    });
+  });
+
   // ==========================================
   // Frontend Serving (Vite dev middleware or Static dist)
   // ==========================================
@@ -132,9 +142,25 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    const indexPath = path.join(distPath, 'index.html');
+
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+    }
+
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.json({
+          status: 'online',
+          service: 'AgriStore REST API Server',
+          domain: 'api.shop.avinia.ir',
+          frontend_domain: 'shop.avinia.ir',
+          health_check: '/api/v1/health',
+          message: 'Web service is active and ready for client requests.',
+        });
+      }
     });
   }
 

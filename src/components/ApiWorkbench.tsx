@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Code2, Play, Copy, Check, Send, Sparkles, Terminal, Key, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../config/api';
 
 interface EndpointDoc {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -389,7 +390,7 @@ export const ApiWorkbench: React.FC = () => {
         }
       }
 
-      const res = await fetch(customPath, options);
+      const res = await apiFetch(customPath, options);
       const elapsed = Math.round(performance.now() - startTime);
       setResponseStatus(res.status);
 

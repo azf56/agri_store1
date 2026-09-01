@@ -11,6 +11,7 @@ import { AdminPanel } from './components/AdminPanel.js';
 import { ApiWorkbench } from './components/ApiWorkbench.js';
 import { CpanelGuide } from './components/CpanelGuide.js';
 import { Product, Category, SystemStatusResponse, User, CartData, Order } from './types/api.js';
+import { apiFetch } from './config/api.js';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTabType>('catalog');
@@ -50,7 +51,7 @@ export default function App() {
   const fetchCart = useCallback(async (token: string) => {
     setLoadingCart(true);
     try {
-      const res = await fetch('/api/v1/cart', {
+      const res = await apiFetch('/api/v1/cart', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -74,7 +75,7 @@ export default function App() {
   const fetchOrders = useCallback(async (token: string) => {
     setLoadingOrders(true);
     try {
-      const res = await fetch('/api/v1/orders', {
+      const res = await apiFetch('/api/v1/orders', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -95,7 +96,7 @@ export default function App() {
   // Verify and fetch user from DB if token exists
   const verifyTokenAndFetchMe = useCallback(async (token: string) => {
     try {
-      const res = await fetch('/api/auth/me', {
+      const res = await apiFetch('/api/auth/me', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -151,7 +152,7 @@ export default function App() {
   const fetchSystemStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
-      const res = await fetch('/api/system/status');
+      const res = await apiFetch('/api/system/status');
       if (res.ok) {
         const data = await res.json();
         setSystemStatus(data);
@@ -167,7 +168,7 @@ export default function App() {
   const fetchCategories = useCallback(async () => {
     setLoadingCategories(true);
     try {
-      const res = await fetch('/api/categories');
+      const res = await apiFetch('/api/categories');
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -193,7 +194,7 @@ export default function App() {
       if (sortBy) params.append('sort', sortBy);
       params.append('limit', '50');
 
-      const res = await fetch(`/api/products?${params.toString()}`);
+      const res = await apiFetch(`/api/products?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -238,7 +239,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch('/api/v1/cart', {
+      const res = await apiFetch('/api/v1/cart', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -260,7 +261,7 @@ export default function App() {
 
   const handleUpdateCartQty = async (itemId: number, newQty: number) => {
     if (!authToken) return;
-    const res = await fetch(`/api/v1/cart/${itemId}`, {
+    const res = await apiFetch(`/api/v1/cart/${itemId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -278,7 +279,7 @@ export default function App() {
 
   const handleRemoveCartItem = async (itemId: number) => {
     if (!authToken) return;
-    const res = await fetch(`/api/v1/cart/${itemId}`, {
+    const res = await apiFetch(`/api/v1/cart/${itemId}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${authToken}`,
@@ -296,7 +297,7 @@ export default function App() {
   const handleClearCart = async () => {
     if (!authToken) return;
     if (!confirm('آیا از تخلیه کامل سبد خرید در پایگاه داده اطمینان دارید؟')) return;
-    const res = await fetch('/api/v1/cart', {
+    const res = await apiFetch('/api/v1/cart', {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${authToken}`,
@@ -318,7 +319,7 @@ export default function App() {
       return false;
     }
 
-    const res = await fetch('/api/v1/orders', {
+    const res = await apiFetch('/api/v1/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,7 +357,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/products/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         handleRefreshAll();

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Database, RefreshCw, CheckCircle2, AlertTriangle, Play, Sparkles, Table2, Layers, Package, Users } from 'lucide-react';
 import { SystemStatusResponse } from '../types/api.js';
+import { apiFetch } from '../config/api.js';
 
 interface DatabaseStatusCardProps {
   status: SystemStatusResponse | null;
@@ -24,7 +25,7 @@ export const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = ({
     setSeeding(true);
     setActionMessage(null);
     try {
-      const res = await fetch('/api/system/seed', { method: 'POST' });
+      const res = await apiFetch('/api/system/seed', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setActionMessage({ text: data.message || 'داده‌های نمونه با موفقیت در دیتابیس درج شدند', type: 'success' });
@@ -43,7 +44,7 @@ export const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = ({
     setSyncing(true);
     setActionMessage(null);
     try {
-      const res = await fetch('/api/system/sync', { method: 'POST' });
+      const res = await apiFetch('/api/system/sync', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         setActionMessage({ text: data.message || 'جداول با ساختار مدل‌های Sequelize همگام‌سازی شدند', type: 'success' });

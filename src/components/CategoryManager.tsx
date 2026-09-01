@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Layers, Plus, Edit2, Trash2, AlertTriangle, CheckCircle2, Package } from 'lucide-react';
 import { Category } from '../types/api.js';
+import { apiFetch } from '../config/api.js';
 
 interface CategoryManagerProps {
   categories: Category[];
@@ -44,7 +45,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'خطا در حذف دسته‌بندی');
@@ -76,7 +77,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       const url = editingCategory ? `/api/categories/${editingCategory.id}` : '/api/categories';
       const method = editingCategory ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

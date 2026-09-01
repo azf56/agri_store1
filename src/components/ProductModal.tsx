@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, AlertTriangle, ShieldCheck, Tag, FileText, Image as ImageIcon } from 'lucide-react';
 import { Product, Category, ProductType } from '../types/api.js';
+import { apiFetch } from '../config/api.js';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -119,7 +120,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       const url = isEditing ? `/api/products/${product?.id}` : '/api/products';
       const method = isEditing ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
