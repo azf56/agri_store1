@@ -7,12 +7,14 @@ interface CategoryManagerProps {
   categories: Category[];
   loading: boolean;
   onRefresh: () => void;
+  token?: string | null;
 }
 
 export const CategoryManager: React.FC<CategoryManagerProps> = ({
   categories,
   loading,
   onRefresh,
+  token,
 }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -42,10 +44,19 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     if (!confirm(`آیا از حذف دسته‌بندی «${catName}» از پایگاه داده اطمینان دارید؟`)) {
       return;
     }
+    if (!token) {
+      setErrorMsg('برای حذف دسته‌بندی باید با نقش مدیر (Admin) وارد شوید.');
+      return;
+    }
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      const res = await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/admin/categories/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'خطا در حذف دسته‌بندی');
@@ -63,6 +74,10 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       setErrorMsg('نام دسته‌بندی الزامی است');
       return;
     }
+    if (!token) {
+      setErrorMsg('برای ثبت یا ویرایش دسته‌بندی باید با نقش مدیر (Admin) وارد شوید.');
+      return;
+    }
 
     setSaving(true);
     setErrorMsg(null);
@@ -74,12 +89,15 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
     };
 
     try {
-      const url = editingCategory ? `/api/categories/${editingCategory.id}` : '/api/categories';
+      const url = editingCategory ? `/api/v1/admin/categories/${editingCategory.id}` : '/api/v1/admin/categories';
       const method = editingCategory ? 'PUT' : 'POST';
 
       const res = await apiFetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
 
@@ -97,6 +115,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
       setSaving(false);
     }
   };
+
 
   return (
     <div className="space-y-6">

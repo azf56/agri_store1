@@ -1,20 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PackageCheck,
   Clock,
   CheckCircle2,
   Truck,
   AlertCircle,
-  ChevronDown,
-  ChevronUp,
   MapPin,
   RefreshCw,
   Tag,
   ShieldCheck,
   Calendar,
   Layers,
+  Eye,
+  ShoppingBag,
+  ExternalLink
 } from 'lucide-react';
 import { Order, OrderStatus, User } from '../types/api.js';
+import { OrderDetailModal } from './OrderDetailModal.js';
 
 interface OrdersHistoryProps {
   orders: Order[];
@@ -35,7 +37,14 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
   onNavigateToCatalog,
   onNavigateToAuth,
 }) => {
-  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+
+  // Requirement: fetch latest orders on mount from database
+  useEffect(() => {
+    if (authToken) {
+      onRefreshOrders();
+    }
+  }, [authToken]);
 
   const formatPrice = (price: number) => {
     return Number(price).toLocaleString('fa-IR') + ' تومان';
@@ -60,49 +69,49 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
     switch (status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            در انتظار تأیید و انبارداری
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+            <Clock className="w-3.5 h-3.5 text-[#D97706]" />
+            در انتظار تأیید
           </span>
         );
       case 'confirmed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
-            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#DBEAFE] text-[#1E40AF] border border-[#BFDBFE]">
+            <CheckCircle2 className="w-3.5 h-3.5 text-[#2563EB]" />
             تأیید شده
           </span>
         );
       case 'processing':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200">
-            <Layers className="w-3.5 h-3.5 text-purple-600" />
-            در حال آماده‌سازی و بسته‌بندی
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#F3E8FF] text-[#6B21A8] border border-[#E9D5FF]">
+            <Layers className="w-3.5 h-3.5 text-[#9333EA]" />
+            در حال پردازش
           </span>
         );
       case 'shipped':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
-            <Truck className="w-3.5 h-3.5 text-indigo-600" />
-            تحویل به باربری / ارسال شده
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#E0F2FE] text-[#0369A1] border border-[#BAE6FD]">
+            <Truck className="w-3.5 h-3.5 text-[#0284C7]" />
+            ارسال شده
           </span>
         );
       case 'delivered':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0]">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#059669]" />
             تحویل داده شده
           </span>
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-800 border border-rose-200">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FEE2E2] text-[#991B1B] border border-[#FECACA]">
+            <AlertCircle className="w-3.5 h-3.5 text-[#DC2626]" />
             لغو شده
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-50 text-gray-800 border border-gray-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-800 border border-gray-200">
             {status}
           </span>
         );
@@ -112,29 +121,29 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
   // If user is not logged in
   if (!authToken || !currentUser) {
     return (
-      <div className="bg-white rounded-2xl border border-[#E5E1D8] shadow-sm p-8 text-center max-w-2xl mx-auto space-y-5">
-        <div className="w-16 h-16 bg-[#FDF4EE] rounded-full flex items-center justify-center mx-auto text-[#C27E47] border border-[#F7E5D9]">
+      <div className="bg-white rounded-3xl border border-[#E5E1D8] shadow-xs p-8 sm:p-12 text-center max-w-xl mx-auto space-y-5 my-8">
+        <div className="w-16 h-16 bg-[#FDF4EE] rounded-2xl flex items-center justify-center mx-auto text-[#C27E47] border border-[#F7E5D9]">
           <PackageCheck className="w-8 h-8" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-[#2D4F3E] mb-2">
-            سوابق سفارش‌های پایگاه داده
+          <h3 className="text-base sm:text-lg font-bold text-[#2D4F3E] mb-2">
+            مشاهده سوابق و سفارش‌های ثبت‌شده
           </h3>
-          <p className="text-sm text-[#6B685E] max-w-md mx-auto leading-relaxed">
-            جهت مشاهده تاریخچه سفارش‌های ثبت‌شده در جدول <span className="font-mono font-bold text-[#2D4F3E]">Order</span> و <span className="font-mono font-bold text-[#2D4F3E]">OrderItem</span>، لطفاً وارد حساب کاربری خود شوید.
+          <p className="text-xs sm:text-sm text-[#6B685E] max-w-md mx-auto leading-relaxed">
+            جهت مشاهده وضعیت پیگیری سفارش‌ها و فاکتورهای رسمی، لطفاً ابتدا وارد حساب کاربری خود شوید.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
           <button
             id="orders-login-prompt-btn"
             onClick={onNavigateToAuth}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#2D4F3E] hover:bg-[#234032] text-white text-sm font-semibold shadow-xs transition-colors"
+            className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-[#2D4F3E] hover:bg-[#234032] text-white text-xs sm:text-sm font-bold shadow-xs transition-colors"
           >
             ورود کشاورزان
           </button>
           <button
             onClick={onNavigateToCatalog}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#EBE7DE] hover:bg-[#DED9CE] text-[#3C3A33] text-sm font-medium border border-[#DCD7CB] transition-colors"
+            className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-[#F4F1EA] hover:bg-[#EBE7DE] text-[#3C3A33] text-xs sm:text-sm font-semibold border border-[#DCD7CB] transition-colors"
           >
             مشاهده کاتالوگ
           </button>
@@ -145,15 +154,16 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
 
   return (
     <div className="space-y-6">
+      
       {/* Header Bar */}
-      <div className="bg-white rounded-2xl border border-[#E5E1D8] shadow-sm p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-3xl border border-[#E5E1D8] shadow-xs p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-[#2D4F3E] flex items-center gap-2">
+          <h2 className="text-base sm:text-lg font-extrabold text-[#2D4F3E] flex items-center gap-2">
             <PackageCheck className="w-5 h-5 text-[#C27E47]" />
-            سفارش‌های ثبت شده کشاورز (جداول Order و OrderItem)
+            <span>تاریخچه و وضعیت سفارش‌های کشاورز</span>
           </h2>
           <p className="text-xs text-[#6B685E] mt-1">
-            سفارش‌ها پس از اجرای موفق تراکنش ACID در دیتابیس MySQL به طور دائمی ذخیره شده و پس از ری‌استارت نیز پایدار می‌مانند.
+            سفارش‌ها با کدهای رهگیری یکتا ثبت و پیگیری مراحل آماده‌سازی و ارسال باربری نمایش داده می‌شود.
           </p>
         </div>
 
@@ -161,52 +171,57 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
           id="refresh-orders-list-btn"
           onClick={onRefreshOrders}
           disabled={loading}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F9F8F6] hover:bg-[#EBE7DE] text-[#3C3A33] text-xs font-medium border border-[#DCD7CB] transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#F9F8F6] hover:bg-[#EBE7DE] text-[#3C3A33] text-xs font-semibold border border-[#DCD7CB] transition-colors"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>استعلام مجدد از دیتابیس</span>
+          <span>استعلام مجدد از سرور</span>
         </button>
       </div>
 
-      {orders.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-[#E5E1D8] shadow-sm p-12 text-center space-y-4">
-          <div className="w-16 h-16 bg-[#F9F8F6] rounded-full flex items-center justify-center mx-auto text-[#8C887D] border border-[#EBE7DE]">
-            <PackageCheck className="w-8 h-8" />
+      {loading && orders.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-[#E5E1D8]">
+          <div className="w-8 h-8 border-3 border-[#2D4F3E] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-[#8C887D]">در حال دریافت لیست سفارش‌ها از سرور...</p>
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-[#E5E1D8] shadow-xs p-10 sm:p-14 text-center space-y-4">
+          <div className="w-16 h-16 bg-[#F9F8F6] rounded-2xl flex items-center justify-center mx-auto text-[#8C887D] border border-[#EBE7DE]">
+            <ShoppingBag className="w-8 h-8" />
           </div>
-          <div>
-            <h3 className="text-base font-bold text-[#3C3A33] mb-1">
+          <div className="space-y-1">
+            <h3 className="text-base font-bold text-[#3C3A33]">
               هنوز هیچ سفارشی برای این حساب ثبت نشده است
             </h3>
-            <p className="text-xs text-[#8C887D] max-w-sm mx-auto">
-              می‌توانید نهاده‌های مورد نیاز خود را به سبد خرید اضافه کرده و سفارش رسمی خود را ثبت نمایید.
+            <p className="text-xs text-[#8C887D] max-w-sm mx-auto leading-relaxed">
+              می‌توانید نهاده‌های مورد نیاز خود را به سبد خرید اضافه کرده و سفارش رسمی خود را نهایی فرمایید.
             </p>
           </div>
           <button
             onClick={onNavigateToCatalog}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#C27E47] hover:bg-[#A96D3C] text-white text-xs sm:text-sm font-semibold shadow-xs transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-[#C27E47] hover:bg-[#A96D3C] text-white text-xs sm:text-sm font-bold shadow-xs transition-colors"
           >
-            مشاهده کاتالوگ و ثبت اولین سفارش
+            مشاهده کاتالوگ و ثبت سفارش
           </button>
         </div>
       ) : (
         <div className="space-y-4">
           {orders.map((order) => {
-            const isExpanded = expandedOrderId === order.id;
             const items = order.items || [];
 
             return (
               <div
                 key={order.id}
                 id={`order-card-${order.id}`}
-                className="bg-white rounded-2xl border border-[#E5E1D8] shadow-sm overflow-hidden hover:border-[#8BA888]/60 transition-all"
+                onClick={() => setSelectedOrderId(order.id)}
+                className="bg-white rounded-3xl border border-[#E5E1D8] shadow-xs overflow-hidden hover:border-[#8BA888] hover:shadow-md transition-all cursor-pointer"
               >
                 {/* Order Summary Row */}
                 <div className="p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-[#FAF9F6] border-b border-[#F0EEE8]">
                   <div className="flex flex-wrap items-center gap-3">
                     {/* Tracking Code */}
                     <div className="px-3 py-1.5 rounded-xl bg-white border border-[#DCD7CB] shadow-2xs">
-                      <span className="text-[11px] text-[#8C887D] block">کد رهگیری رسمی:</span>
-                      <span className="text-xs sm:text-sm font-bold font-mono text-[#2D4F3E]">
+                      <span className="text-[11px] text-[#8C887D] block">کد رهگیری:</span>
+                      <span className="text-xs sm:text-sm font-extrabold font-mono text-[#2D4F3E]">
                         {order.tracking_code || `AGRI-ORD-${order.id}`}
                       </span>
                     </div>
@@ -217,7 +232,7 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
                       <span>{formatDate(order.created_at)}</span>
                     </div>
 
-                    {/* Status */}
+                    {/* Status with Color Badge */}
                     <div>{getStatusBadge(order.status)}</div>
                   </div>
 
@@ -225,94 +240,55 @@ export const OrdersHistory: React.FC<OrdersHistoryProps> = ({
                     {/* Total Price */}
                     <div className="text-right lg:text-left">
                       <span className="text-[11px] text-[#8C887D] block">مبلغ کل سفارش:</span>
-                      <span className="text-sm sm:text-base font-bold text-[#C27E47] font-mono">
+                      <span className="text-sm sm:text-base font-black text-[#C27E47] font-mono">
                         {formatPrice(order.total_price)}
                       </span>
                     </div>
 
-                    {/* Expand/Collapse Items Button */}
+                    {/* View Details Button */}
                     <button
-                      id={`order-toggle-${order.id}-btn`}
-                      onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-[#EBE7DE] text-[#3C3A33] text-xs font-semibold border border-[#DCD7CB] transition-colors"
+                      id={`order-view-details-${order.id}-btn`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedOrderId(order.id);
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white hover:bg-[#EBE7DE] text-[#2D4F3E] text-xs font-bold border border-[#DCD7CB] transition-colors"
                     >
-                      <span>{items.length} قلم کالا</span>
-                      {isExpanded ? (
-                        <ChevronUp className="w-4 h-4 text-[#8C887D]" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-[#8C887D]" />
-                      )}
+                      <Eye className="w-3.5 h-3.5 text-[#2D4F3E]" />
+                      <span>مشاهده فاکتور ({items.length} قلم)</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Shipping & Farm Location details */}
-                <div className="px-5 py-3 bg-white text-xs text-[#6B685E] flex items-center gap-2 border-b border-[#F0EEE8]">
-                  <MapPin className="w-3.5 h-3.5 text-[#2D4F3E] shrink-0" />
-                  <span>
-                    <strong className="text-[#3C3A33]">آدرس و موقعیت تحویل:</strong>{' '}
-                    {order.shipping_address || 'آدرس پیش‌فرض کشاورز'}
+                <div className="px-5 py-3 bg-white text-xs text-[#6B685E] flex items-center justify-between border-b border-[#F0EEE8]">
+                  <div className="flex items-center gap-2 truncate">
+                    <MapPin className="w-3.5 h-3.5 text-[#2D4F3E] shrink-0" />
+                    <span className="truncate">
+                      <strong className="text-[#3C3A33]">محل تحویل:</strong>{' '}
+                      {order.shipping_address || 'آدرس پیش‌فرض مزرعه'}
+                    </span>
+                  </div>
+
+                  <span className="text-[11px] text-[#8C887D] shrink-0">
+                    کلیک برای مشاهده جزئیات اقلام (GET /api/v1/orders/{order.id})
                   </span>
                 </div>
-
-                {/* Order Items Breakdown */}
-                {isExpanded && (
-                  <div className="p-5 bg-white space-y-3">
-                    <h4 className="text-xs font-bold text-[#2D4F3E] mb-2 flex items-center gap-1.5">
-                      <Tag className="w-3.5 h-3.5 text-[#C27E47]" />
-                      ریز اقلام خریداری‌شده (جدول OrderItem در MySQL):
-                    </h4>
-
-                    <div className="space-y-2">
-                      {items.map((it) => {
-                        const product = it.product;
-                        const lineTotal = it.unit_price * it.quantity;
-
-                        return (
-                          <div
-                            key={it.id}
-                            className="flex items-center justify-between p-3 rounded-xl bg-[#F9F8F6] border border-[#F0EEE8] text-xs"
-                          >
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={
-                                  product?.image_url ||
-                                  'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'
-                                }
-                                alt={product?.name || 'محصول'}
-                                className="w-11 h-11 rounded-lg object-cover border border-[#EBE7DE] bg-white shrink-0"
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                  (e.target as HTMLElement).setAttribute(
-                                    'src',
-                                    'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'
-                                  );
-                                }}
-                              />
-                              <div>
-                                <span className="font-bold text-[#2D4F3E] block">
-                                  {product?.name || `کالای #${it.product_id}`}
-                                </span>
-                                <span className="text-[11px] text-[#8C887D]">
-                                  قیمت واحد: {formatPrice(it.unit_price)} × {it.quantity} عدد
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="text-left font-bold text-[#3C3A33] font-mono">
-                              {formatPrice(lineTotal)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Order Detail Modal */}
+      {selectedOrderId && (
+        <OrderDetailModal
+          orderId={selectedOrderId}
+          authToken={authToken}
+          onClose={() => setSelectedOrderId(null)}
+        />
+      )}
+
     </div>
   );
 };

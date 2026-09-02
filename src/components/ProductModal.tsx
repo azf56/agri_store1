@@ -9,6 +9,7 @@ interface ProductModalProps {
   onSaveSuccess: () => void;
   product: Product | null;
   categories: Category[];
+  token?: string | null;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -17,8 +18,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   onSaveSuccess,
   product,
   categories,
+  token,
 }) => {
   const isEditing = Boolean(product);
+
 
   const [formData, setFormData] = useState<{
     name: string;
@@ -99,6 +102,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       return;
     }
 
+    if (!token) {
+      setErrorMsg('برای ثبت یا ویرایش محصول باید با حساب مدیر وارد شوید.');
+      return;
+    }
+
     setSaving(true);
     setErrorMsg(null);
 
@@ -117,18 +125,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     };
 
     try {
-      const url = isEditing ? `/api/products/${product?.id}` : '/api/products';
+      const url = isEditing ? `/api/v1/admin/products/${product?.id}` : '/api/v1/admin/products';
       const method = isEditing ? 'PUT' : 'POST';
 
       const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
 
       const data = await res.json();
+
 
       if (!res.ok || !data.success) {
         throw new Error(data.message || (data.errors && data.errors[0]?.message) || 'خطا در ذخیره‌سازی اطلاعات');

@@ -10,6 +10,8 @@ import { OrdersHistory } from './components/OrdersHistory.js';
 import { AdminPanel } from './components/AdminPanel.js';
 import { ApiWorkbench } from './components/ApiWorkbench.js';
 import { CpanelGuide } from './components/CpanelGuide.js';
+import { OfflineIndicator } from './components/OfflineIndicator.js';
+import { ToastNotification, ToastMessage, ToastType } from './components/ToastNotification.js';
 import { Product, Category, SystemStatusResponse, User, CartData, Order } from './types/api.js';
 import { apiFetch } from './config/api.js';
 
@@ -21,6 +23,18 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(() => {
     return localStorage.getItem('agri_jwt_token') || null;
   });
+
+  // Toasts
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = useCallback((type: ToastType, message: string, title?: string) => {
+    const id = Date.now().toString() + Math.random().toString().slice(2, 6);
+    setToasts((prev) => [...prev.slice(-3), { id, type, message, title }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   // Data states
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
@@ -47,7 +61,7 @@ export default function App() {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  // Fetch Cart from MySQL API
+  // 1. Fetch Cart from MySQL API
   const fetchCart = useCallback(async (token: string) => {
     setLoadingCart(true);
     try {
@@ -62,6 +76,10 @@ export default function App() {
           setCart(json.data);
         }
       } else if (res.status === 401) {
+        // Expired token
+        localStorage.removeItem('agri_jwt_token');
+        setAuthToken(null);
+        setCurrentUser(null);
         setCart(null);
       }
     } catch (err) {
@@ -71,7 +89,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch Orders from MySQL API
+  // 2. Fetch Orders from MySQL API
   const fetchOrders = useCallback(async (token: string) => {
     setLoadingOrders(true);
     try {
@@ -85,6 +103,11 @@ export default function App() {
         if (json.success && Array.isArray(json.data)) {
           setOrders(json.data);
         }
+      } else if (res.status === 401) {
+        localStorage.removeItem('agri_jwt_token');
+        setAuthToken(null);
+        setCurrentUser(null);
+        setOrders([]);
       }
     } catch (err) {
       console.error('Error fetching orders:', err);
@@ -132,6 +155,7 @@ export default function App() {
     setAuthToken(token);
     setCurrentUser(user);
     localStorage.setItem('agri_jwt_token', token);
+    showToast('success', `خوش آمدید ${user.full_name || 'کاربر گرامی'}`, 'ورود موفق');
     fetchCart(token);
     fetchOrders(token);
   };
@@ -142,6 +166,7 @@ export default function App() {
     setCart(null);
     setOrders([]);
     localStorage.removeItem('agri_jwt_token');
+    showToast('info', 'از حساب کاربری خود خارج شدید.', 'خروج');
   };
 
   const handleUserUpdated = (user: User) => {
@@ -230,10 +255,20 @@ export default function App() {
     }
   };
 
+  // Switch tab with live data sync
+  const handleTabChange = (tab: ActiveTabType) => {
+    setActiveTab(tab);
+    if (tab === 'cart' && authToken) {
+      fetchCart(authToken);
+    } else if (tab === 'orders' && authToken) {
+      fetchOrders(authToken);
+    }
+  };
+
   // Cart Handlers
   const handleAddToCart = async (productId: number, quantity: number = 1) => {
     if (!authToken) {
-      alert('برای افزودن کالا به سبد خرید دیتابیس، لطفاً ابتدا وارد حساب کاربری خود شوید.');
+      showToast('info', 'برای افزودن به سبد خرید ابتدا وارد حساب کاربری خود شوید.', 'ورود به حساب');
       setActiveTab('auth');
       return;
     }
@@ -248,14 +283,22 @@ export default function App() {
         body: JSON.stringify({ product_id: productId, quantity }),
       });
       const data = await res.json();
-      if (data.success && data.data) {
+      if (res.ok && data.success && data.data) {
         setCart(data.data);
+        showToast('success', 'محصول با موفقیت به سبد خرید افزوده شد.', 'سبد خرید');
         fetchSystemStatus();
+      } else if (res.status === 401) {
+        localStorage.removeItem('agri_jwt_token');
+        setAuthToken(null);
+        setCurrentUser(null);
+        setCart(null);
+        showToast('error', 'نشست شما منقضی شده است. لطفاً مجدداً وارد شوید.', 'احراز هویت');
+        setActiveTab('auth');
       } else {
-        alert(data.message || 'خطا در افزودن کالا به سبد خرید');
+        showToast('error', data.message || 'خطا در افزودن کالا به سبد خرید', 'خطای موجودی');
       }
     } catch (err: any) {
-      alert(`خطا در ارتباط با سرور: ${err.message}`);
+      showToast('error', `خطا در ارتباط با سرور: ${err.message}`, 'خطای شبکه');
     }
   };
 
@@ -270,10 +313,17 @@ export default function App() {
       body: JSON.stringify({ quantity: newQty }),
     });
     const data = await res.json();
-    if (data.success && data.data) {
+    if (res.ok && data.success && data.data) {
       setCart(data.data);
+    } else if (res.status === 401) {
+      localStorage.removeItem('agri_jwt_token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setCart(null);
+      showToast('error', 'نشست شما منقضی شده است. لطفاً مجدداً وارد شوید.');
+      setActiveTab('auth');
     } else {
-      throw new Error(data.message || 'خطا در تغییر تعداد');
+      throw new Error(data.message || 'خطا در تغییر تعداد کالا');
     }
   };
 
@@ -286,9 +336,16 @@ export default function App() {
       },
     });
     const data = await res.json();
-    if (data.success && data.data) {
+    if (res.ok && data.success && data.data) {
       setCart(data.data);
+      showToast('info', 'آیتم از سبد خرید حذف شد.');
       fetchSystemStatus();
+    } else if (res.status === 401) {
+      localStorage.removeItem('agri_jwt_token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setCart(null);
+      setActiveTab('auth');
     } else {
       throw new Error(data.message || 'خطا در حذف آیتم');
     }
@@ -296,7 +353,6 @@ export default function App() {
 
   const handleClearCart = async () => {
     if (!authToken) return;
-    if (!confirm('آیا از تخلیه کامل سبد خرید در پایگاه داده اطمینان دارید؟')) return;
     const res = await apiFetch('/api/v1/cart', {
       method: 'DELETE',
       headers: {
@@ -304,17 +360,25 @@ export default function App() {
       },
     });
     const data = await res.json();
-    if (data.success && data.data) {
+    if (res.ok && data.success && data.data) {
       setCart(data.data);
+      showToast('info', 'سبد خرید در پایگاه داده به طور کامل تخلیه شد.');
       fetchSystemStatus();
+    } else if (res.status === 401) {
+      localStorage.removeItem('agri_jwt_token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setCart(null);
+      setActiveTab('auth');
     } else {
       throw new Error(data.message || 'خطا در تخلیه سبد');
     }
   };
 
-  // Place Order Handler with Transaction
+  // Place Order Handler with ACID Transaction
   const handlePlaceOrder = async (shippingAddress: string): Promise<boolean> => {
     if (!authToken) {
+      showToast('info', 'برای ثبت سفارش ابتدا وارد حساب کاربری خود شوید.');
       setActiveTab('auth');
       return false;
     }
@@ -328,16 +392,25 @@ export default function App() {
       body: JSON.stringify({ shipping_address: shippingAddress }),
     });
     const data = await res.json();
-    if (data.success) {
-      // Refresh cart, orders, products (for stock decrement) and status
-      fetchCart(authToken);
-      fetchOrders(authToken);
+    if (res.ok && data.success) {
+      // Refresh cart (will be empty), orders, products (for stock decrement) and status
+      await fetchCart(authToken);
+      await fetchOrders(authToken);
       fetchProducts();
       fetchSystemStatus();
+      showToast('success', data.message || 'سفارش شما با موفقیت ثبت گردید.', 'ثبت سفارش');
       setActiveTab('orders');
       return true;
+    } else if (res.status === 401) {
+      localStorage.removeItem('agri_jwt_token');
+      setAuthToken(null);
+      setCurrentUser(null);
+      setCart(null);
+      showToast('error', 'نشست شما منقضی شده است. لطفاً مجدداً وارد شوید.');
+      setActiveTab('auth');
+      return false;
     } else {
-      throw new Error(data.message || 'خطا در ثبت تراکنشی سفارش');
+      throw new Error(data.message || 'خطا در ثبت سفارش');
     }
   };
 
@@ -353,19 +426,26 @@ export default function App() {
   };
 
   const handleDeleteProduct = async (id: number, name: string) => {
-    if (!confirm(`آیا از حذف محصول «${name}» از پایگاه داده اطمینان دارید؟`)) {
+    if (!authToken) {
+      showToast('info', 'برای حذف محصول باید با حساب مدیر وارد شوید.');
       return;
     }
     try {
-      const res = await apiFetch(`/api/products/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/v1/admin/products/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
+        showToast('success', `محصول «${name}» با موفقیت حذف گردید.`);
         handleRefreshAll();
       } else {
-        alert(data.message || 'خطا در حذف محصول');
+        showToast('error', data.message || 'خطا در حذف محصول');
       }
     } catch (err: any) {
-      alert(`خطا در ارتباط با سرور: ${err.message}`);
+      showToast('error', `خطا در ارتباط با سرور: ${err.message}`);
     }
   };
 
@@ -374,11 +454,14 @@ export default function App() {
   return (
     <div dir="rtl" className="min-h-screen bg-[#F4F1EA] text-[#3C3A33] flex flex-col font-sans selection:bg-[#8BA888]/40 selection:text-[#2D4F3E]">
       
+      {/* Toast Notification Container */}
+      <ToastNotification toasts={toasts} onDismiss={dismissToast} />
+
       {/* Top Navbar */}
       <Header
         status={systemStatus}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         currentUser={currentUser}
         cartCount={cartItemsCount}
         onRefresh={handleRefreshAll}
@@ -401,6 +484,7 @@ export default function App() {
             products={products}
             categories={categories}
             loading={loadingProducts}
+            currentUser={currentUser}
             onAddProduct={handleOpenAddProduct}
             onEditProduct={handleOpenEditProduct}
             onDeleteProduct={handleDeleteProduct}
@@ -461,6 +545,7 @@ export default function App() {
             categories={categories}
             loading={loadingCategories}
             onRefresh={handleRefreshAll}
+            token={authToken}
           />
         )}
 
@@ -487,7 +572,11 @@ export default function App() {
         onSaveSuccess={handleRefreshAll}
         product={editingProduct}
         categories={categories}
+        token={authToken}
       />
+
+      {/* Offline Alert Indicator */}
+      <OfflineIndicator />
 
       {/* Footer */}
       <footer className="bg-[#EBE7DE] border-t border-[#DCD7CB] py-5 mt-12 text-center text-xs text-[#6B685E]">
@@ -503,4 +592,3 @@ export default function App() {
     </div>
   );
 }
-

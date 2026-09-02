@@ -39,23 +39,29 @@ async function startServer() {
 
   const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
   const configuredOrigins = allowedOriginsEnv
-    ? allowedOriginsEnv.split(',').map((origin) => origin.trim())
-    : ['*'];
+    ? allowedOriginsEnv.split(',').map((origin) => origin.trim()).filter(Boolean)
+    : [];
 
   app.use(
     cors({
       origin: (origin, callback) => {
-        // Allow mobile apps (which have no origin or file://) and configured web origins
-        if (
-          !origin ||
-          configuredOrigins.includes('*') ||
-          configuredOrigins.includes(origin) ||
-          defaultAllowedOrigins.includes(origin)
-        ) {
-          callback(null, true);
-        } else {
-          callback(null, true);
+        // 1. Allow mobile apps / native clients (no origin header) or local tools (Postman/curl)
+        if (!origin) {
+          return callback(null, true);
         }
+
+        // 2. Allow if wildcard '*' is explicitly configured
+        if (configuredOrigins.includes('*')) {
+          return callback(null, true);
+        }
+
+        // 3. Allow if origin matches configured environment origins or default permitted domains
+        if (configuredOrigins.includes(origin) || defaultAllowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+
+        // 4. Deny any other unauthorized origin with a security error
+        return callback(new Error('دسترسی از این دامنه مجاز نیست (CORS Blocked)'));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -128,6 +134,24 @@ async function startServer() {
       success: false,
       message: `مسیر API یافت نشد: ${req.method} ${req.originalUrl}`,
       error: 'Not Found',
+    });
+  });
+
+  // Global Error Handler (handles CORS errors and unhandled exceptions)
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err && (err.message?.includes('CORS') || err.message?.includes('دامنه'))) {
+      res.status(403).json({
+        success: false,
+        message: err.message || 'دسترسی از این مبدأ (Origin) توسط سیاست امنیتی CORS مسدود شد',
+        error: 'Forbidden - CORS Violation',
+      });
+      return;
+    }
+    console.error('Unhandled server error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'خطای داخلی سرور رخ داده است',
+      error: err?.message || 'Internal Server Error',
     });
   });
 

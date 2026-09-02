@@ -1,6 +1,7 @@
 import React from 'react';
 import { Database, Sprout, Layers, Code2, BookOpen, RefreshCw, UserCheck, ShoppingCart, PackageCheck, User as UserIcon, ShieldCheck } from 'lucide-react';
 import { SystemStatusResponse, User } from '../types/api.js';
+import { PWAInstallButton } from './PWAInstallButton.js';
 
 export type ActiveTabType = 'catalog' | 'cart' | 'orders' | 'admin' | 'categories' | 'auth' | 'api-tester' | 'cpanel-guide';
 
@@ -50,10 +51,13 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
 
-            {/* DB Status Badge (Mobile) */}
-            <div className="flex md:hidden items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/20">
-              <span className={`w-2 h-2 rounded-full ${isDbConnected ? 'bg-[#A2D9A1] animate-pulse' : 'bg-rose-400'}`} />
-              <span className="text-[#A2D9A1] font-mono">{dialect}</span>
+            {/* PWA Install Button & DB Status Badge (Mobile) */}
+            <div className="flex md:hidden items-center gap-2">
+              <PWAInstallButton />
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/20">
+                <span className={`w-2 h-2 rounded-full ${isDbConnected ? 'bg-[#A2D9A1] animate-pulse' : 'bg-rose-400'}`} />
+                <span className="text-[#A2D9A1] font-mono">{dialect}</span>
+              </div>
             </div>
           </div>
 
@@ -181,6 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Action & Status (Desktop) */}
           <div className="hidden md:flex items-center gap-3">
+            <PWAInstallButton />
             
             {/* User Quick Button */}
             {currentUser ? (
