@@ -25,44 +25,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 async function startServer() {
   const app = express();
 
-  // Android & Web CORS Configuration for shop.avinia.ir and api.shop.avinia.ir
-  const defaultAllowedOrigins = [
-    'https://shop.avinia.ir',
-    'http://shop.avinia.ir',
-    'https://api.shop.avinia.ir',
-    'http://api.shop.avinia.ir',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
-  ];
-
-  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS;
-  const configuredOrigins = allowedOriginsEnv
-    ? allowedOriginsEnv.split(',').map((origin) => origin.trim()).filter(Boolean)
-    : [];
-
+  // Permissive and flexible CORS Configuration for Preview environment & cPanel/Android (shop.avinia.ir, api.shop.avinia.ir)
   app.use(
     cors({
-      origin: (origin, callback) => {
-        // 1. Allow mobile apps / native clients (no origin header) or local tools (Postman/curl)
-        if (!origin) {
-          return callback(null, true);
-        }
-
-        // 2. Allow if wildcard '*' is explicitly configured
-        if (configuredOrigins.includes('*')) {
-          return callback(null, true);
-        }
-
-        // 3. Allow if origin matches configured environment origins or default permitted domains
-        if (configuredOrigins.includes(origin) || defaultAllowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
-
-        // 4. Deny any other unauthorized origin with a security error
-        return callback(new Error('دسترسی از این دامنه مجاز نیست (CORS Blocked)'));
-      },
+      origin: true, // Automatically reflect request origin (supports AI Studio preview iframe, Cloud Run, cPanel, local dev, mobile apps)
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
