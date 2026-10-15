@@ -1,6 +1,6 @@
 node_modules/
 build/
-dist/
+# dist/ (Uncommented so pre-built server and frontend are available on cPanel git pull)
 coverage/
 .DS_Store
 *.log
