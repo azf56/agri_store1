@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -23,6 +23,15 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
+  Printer,
+  DollarSign,
+  Filter,
+  ArrowUpDown,
+  Phone,
+  MapPin,
+  Box,
+  Eye,
+  Check,
 } from 'lucide-react';
 import {
   User,
@@ -33,7 +42,9 @@ import {
   OrderStatus,
   AdminDashboardStats,
 } from '../types/api';
-import { apiFetch, resolveMediaUrl } from '../config/api';
+import { apiFetch } from '../config/api';
+import { AdminInvoiceModal } from './admin/AdminInvoiceModal';
+import { AdminQuickStockModal } from './admin/AdminQuickStockModal';
 
 interface AdminPanelProps {
   user: User | null;
@@ -41,6 +52,7 @@ interface AdminPanelProps {
   categories: Category[];
   onRefreshCatalog: () => void;
   onNavigateToAuth: () => void;
+  onLoginSuccess?: (token: string, user: User) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -49,29 +61,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   categories,
   onRefreshCatalog,
   onNavigateToAuth,
+  onLoginSuccess,
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'products' | 'categories' | 'terminal'>('dashboard');
-  
-  // Dashboard state
+
+  // Dashboard Stats State
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  // Orders state
+  // Orders State
   const [orders, setOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersFilterStatus, setOrdersFilterStatus] = useState<string>('all');
   const [ordersSearch, setOrdersSearch] = useState<string>('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
 
-  // Products state
+  // Products State
   const [adminProducts, setAdminProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState<string>('all');
+  const [productCategoryFilter, setProductCategoryFilter] = useState<string>('all');
+  const [productStockFilter, setProductStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
+  const [productSortBy, setProductSortBy] = useState<'newest' | 'price_asc' | 'price_desc' | 'stock_asc' | 'stock_desc'>('newest');
 
-  // Product Modal State
+  // Quick Stock Modal State
+  const [quickStockProduct, setQuickStockProduct] = useState<Product | null>(null);
+  const [isQuickStockOpen, setIsQuickStockOpen] = useState(false);
+
+  // Full Product Create / Edit Modal State
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productFormData, setProductFormData] = useState({
@@ -88,6 +110,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     msds_file_url: '',
   });
   const [productImageFile, setProductImageFile] = useState<File | null>(null);
+  const [productImagePreview, setProductImagePreview] = useState<string | null>(null);
   const [productMsdsFile, setProductMsdsFile] = useState<File | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
@@ -97,6 +120,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [categoryName, setCategoryName] = useState('');
   const [categoryDesc, setCategoryDesc] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
+
+  // Quick Demo Login Loading State
+  const [loggingInDemoAdmin, setLoggingInDemoAdmin] = useState(false);
 
   // Status/Feedback Toast
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -108,7 +134,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const isAdmin = user && user.role === 'admin';
 
-  // Fetch Stats
+  // 1. Fetch Stats from DB
   const fetchStats = async () => {
     if (!token || !isAdmin) return;
     setLoadingStats(true);
@@ -133,7 +159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Fetch Admin Orders
+  // 2. Fetch Admin Orders from DB
   const fetchOrders = async () => {
     if (!token || !isAdmin) return;
     setLoadingOrders(true);
@@ -141,7 +167,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const params = new URLSearchParams();
       if (ordersFilterStatus !== 'all') params.append('status', ordersFilterStatus);
       if (ordersSearch.trim()) params.append('search', ordersSearch.trim());
-      params.append('limit', '50');
+      params.append('limit', '100');
 
       const res = await apiFetch(`/api/v1/admin/orders?${params.toString()}`, {
         headers: {
@@ -160,12 +186,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // Fetch Admin Products
+  // 3. Fetch Admin Products from DB
   const fetchAdminProducts = async () => {
     if (!token || !isAdmin) return;
     setLoadingProducts(true);
     try {
-      const res = await apiFetch('/api/v1/products?limit=100', {
+      const res = await apiFetch('/api/v1/products?limit=200', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -181,6 +207,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // Initial load
   useEffect(() => {
     if (isAdmin && token) {
       fetchStats();
@@ -189,11 +216,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [isAdmin, token]);
 
+  // Refetch orders when filter changes
   useEffect(() => {
     if (isAdmin && token && activeTab === 'orders') {
       fetchOrders();
     }
   }, [ordersFilterStatus, activeTab]);
+
+  // Demo Admin Login Handler (1-Click for Instant Testing)
+  const handleDemoAdminLogin = async () => {
+    setLoggingInDemoAdmin(true);
+    try {
+      const res = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone_number: '09121234567',
+          password: 'admin123456',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.token && data.user) {
+        if (onLoginSuccess) {
+          onLoginSuccess(data.token, data.user);
+        }
+        showToast('با حساب کاربری مدیر کل با موفقیت وارد شدید.', 'success');
+      } else {
+        showToast(data.message || 'خطا در ورود به عنوان مدیر', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'خطا در ارتباط با سرور', 'error');
+    } finally {
+      setLoggingInDemoAdmin(false);
+    }
+  };
 
   // Update Order Status
   const handleUpdateOrderStatus = async (orderId: number, newStatus: OrderStatus) => {
@@ -224,6 +283,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // Toggle Product Active Status
+  const handleToggleProductActive = async (product: Product) => {
+    if (!token) return;
+    const nextActiveState = !(product.is_active ?? true);
+    try {
+      const res = await apiFetch(`/api/v1/admin/products/${product.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          is_active: nextActiveState,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(
+          nextActiveState
+            ? `محصول «${product.name}» فعال و در ویترین کاتالوگ نمایش داده شد.`
+            : `محصول «${product.name}» غیرفعال و از دید عموم خریداران مخفی شد.`,
+          'success'
+        );
+        fetchAdminProducts();
+        onRefreshCatalog();
+        fetchStats();
+      } else {
+        showToast(data.message || 'خطا در تغییر وضعیت محصول', 'error');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'خطای شبکه', 'error');
+    }
+  };
+
   // Open Product Modal for Create
   const handleOpenCreateProduct = () => {
     setEditingProduct(null);
@@ -231,7 +325,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       name: '',
       description: '',
       price: '',
-      stock: '20',
+      stock: '25',
       category_id: categories[0]?.id?.toString() || '1',
       product_type: 'کود',
       required_permit_number: '',
@@ -241,6 +335,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       msds_file_url: '',
     });
     setProductImageFile(null);
+    setProductImagePreview(null);
     setProductMsdsFile(null);
     setIsProductModalOpen(true);
   };
@@ -262,11 +357,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       msds_file_url: prod.msds_file_url || '',
     });
     setProductImageFile(null);
+    setProductImagePreview(prod.image_url || null);
     setProductMsdsFile(null);
     setIsProductModalOpen(true);
   };
 
-  // Save Product (Create or Update with FormData)
+  // Open Quick Stock Adjuster
+  const handleOpenQuickStock = (prod: Product) => {
+    setQuickStockProduct(prod);
+    setIsQuickStockOpen(true);
+  };
+
+  // Save Product (Create or Update with Multipart FormData)
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -274,16 +376,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     try {
       const formData = new FormData();
-      formData.append('name', productFormData.name);
-      formData.append('description', productFormData.description);
+      formData.append('name', productFormData.name.trim());
+      formData.append('description', productFormData.description.trim());
       formData.append('price', productFormData.price);
       formData.append('stock', productFormData.stock);
       formData.append('category_id', productFormData.category_id);
       formData.append('product_type', productFormData.product_type);
-      formData.append('required_permit_number', productFormData.required_permit_number);
-      formData.append('brand', productFormData.brand);
-      formData.append('package_size', productFormData.package_size);
-      
+      formData.append('required_permit_number', productFormData.required_permit_number.trim());
+      formData.append('brand', productFormData.brand.trim());
+      formData.append('package_size', productFormData.package_size.trim());
+
       if (productFormData.image_url && !productImageFile) {
         formData.append('image_url', productFormData.image_url);
       }
@@ -301,7 +403,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const url = editingProduct
         ? `/api/v1/admin/products/${editingProduct.id}`
         : '/api/v1/admin/products';
-      
+
       const method = editingProduct ? 'PUT' : 'POST';
 
       const res = await apiFetch(url, {
@@ -338,7 +440,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleDeleteProduct = async (product: Product) => {
     if (!token) return;
     const confirmed = window.confirm(
-      `آیا از حذف محصول "${product.name}" اطمینان دارید؟\n\nنکته امنیتی: در صورتی که این محصول در سفارش‌های قبلی ثبت شده باشد، سوابق حفظ شده و محصول صرفاً غیرفعال (is_active = false) خواهد شد.`
+      `آیا از حذف محصول "${product.name}" اطمینان دارید؟\n\nنکته امنیتی: در صورتی که این محصول در سفارش‌های قبلی ثبت شده باشد، سوابق حفظ شده و محصول به صورت نرم‌افزاری غیرفعال (is_active = false) خواهد شد.`
     );
     if (!confirmed) return;
 
@@ -435,26 +537,118 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  // Filtered and Sorted Admin Products
+  const filteredProducts = useMemo(() => {
+    return adminProducts
+      .filter((p) => {
+        const matchesType = productTypeFilter === 'all' || p.product_type === productTypeFilter;
+        const matchesCategory = productCategoryFilter === 'all' || p.category_id.toString() === productCategoryFilter;
+
+        let matchesStock = true;
+        if (productStockFilter === 'in_stock') matchesStock = p.stock > 10;
+        else if (productStockFilter === 'low_stock') matchesStock = p.stock > 0 && p.stock <= 10;
+        else if (productStockFilter === 'out_of_stock') matchesStock = p.stock === 0;
+
+        const term = productSearch.trim().toLowerCase();
+        const matchesSearch =
+          !term ||
+          p.name.toLowerCase().includes(term) ||
+          (p.brand && p.brand.toLowerCase().includes(term)) ||
+          (p.required_permit_number && p.required_permit_number.toLowerCase().includes(term)) ||
+          p.id.toString() === term;
+
+        return matchesType && matchesCategory && matchesStock && matchesSearch;
+      })
+      .sort((a, b) => {
+        if (productSortBy === 'price_asc') return a.price - b.price;
+        if (productSortBy === 'price_desc') return b.price - a.price;
+        if (productSortBy === 'stock_asc') return a.stock - b.stock;
+        if (productSortBy === 'stock_desc') return b.stock - a.stock;
+        return b.id - a.id; // default newest
+      });
+  }, [adminProducts, productTypeFilter, productCategoryFilter, productStockFilter, productSearch, productSortBy]);
+
+  // Order Status Badge
   const getStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'pending':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300"><Clock className="w-3 h-3" /> در انتظار تأیید</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+            <Clock className="w-3 h-3 text-amber-700" />
+            در انتظار تأیید
+          </span>
+        );
       case 'confirmed':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300"><CheckCircle className="w-3 h-3" /> تأیید شده</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-900 border border-blue-300">
+            <CheckCircle className="w-3 h-3 text-blue-700" />
+            تأیید شده
+          </span>
+        );
       case 'processing':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300"><RefreshCw className="w-3 h-3" /> در حال بسته‌بندی</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-900 border border-purple-300">
+            <RefreshCw className="w-3 h-3 text-purple-700" />
+            در حال بسته‌بندی
+          </span>
+        );
       case 'shipped':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-800 border border-cyan-300"><Truck className="w-3 h-3" /> ارسال شده به مزرعه</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-900 border border-cyan-300">
+            <Truck className="w-3 h-3 text-cyan-700" />
+            ارسال به مزرعه
+          </span>
+        );
       case 'delivered':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300"><CheckCircle className="w-3 h-3" /> تحویل شده</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-900 border border-emerald-300">
+            <CheckCircle className="w-3 h-3 text-emerald-700" />
+            تحویل شد
+          </span>
+        );
       case 'cancelled':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300"><XCircle className="w-3 h-3" /> لغو شده</span>;
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-900 border border-rose-300">
+            <XCircle className="w-3 h-3 text-rose-700" />
+            لغو شده
+          </span>
+        );
       default:
         return <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-800">{status}</span>;
     }
   };
 
-  // If not logged in or role is not admin, show permission gate
+  // Order Step Indicator Helper
+  const getOrderStep = (status: OrderStatus): number => {
+    switch (status) {
+      case 'pending': return 1;
+      case 'confirmed': return 2;
+      case 'processing': return 3;
+      case 'shipped': return 4;
+      case 'delivered': return 5;
+      default: return 0;
+    }
+  };
+
+  // Next status action recommendation
+  const getNextStatusAction = (status: OrderStatus): { target: OrderStatus; label: string; color: string } | null => {
+    switch (status) {
+      case 'pending':
+        return { target: 'confirmed', label: 'تأیید فاکتور و ارسال به انبار', color: 'bg-blue-600 hover:bg-blue-700' };
+      case 'confirmed':
+        return { target: 'processing', label: 'شروع بسته‌بندی و بارگیری', color: 'bg-purple-600 hover:bg-purple-700' };
+      case 'processing':
+        return { target: 'shipped', label: 'تحویل به باربری و ارسال به مقصد', color: 'bg-cyan-700 hover:bg-cyan-800' };
+      case 'shipped':
+        return { target: 'delivered', label: 'ثبت تحویل نهایی به کشاورز', color: 'bg-emerald-700 hover:bg-emerald-800' };
+      default:
+        return null;
+    }
+  };
+
+  // =========================================================================
+  // GATE SCREEN: If user is not logged in or role !== 'admin'
+  // =========================================================================
   if (!user || user.role !== 'admin') {
     return (
       <div id="admin-forbidden-gate" className="max-w-4xl mx-auto space-y-6 text-right" dir="rtl">
@@ -491,19 +685,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
           ) : (
-            <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-800 text-sm max-w-lg mx-auto">
-              شما در حال حاضر وارد حساب کاربری نشده‌اید. لطفاً با حساب کاربری مدیر وارد شوید.
+            <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-900 text-sm max-w-lg mx-auto font-medium">
+              شما در حال حاضر وارد حساب کاربری نشده‌اید. می‌توانید با حساب مدیر نمونه با یک کلیک وارد شوید.
             </div>
           )}
 
+          {/* Quick 1-Click Demo Login Button for Instant Testing */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              id="admin-quick-demo-login-btn"
+              onClick={handleDemoAdminLogin}
+              disabled={loggingInDemoAdmin}
+              className="px-6 py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-xl shadow-lg transition-all flex items-center gap-2"
+            >
+              {loggingInDemoAdmin ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-5 h-5 text-emerald-300" />
+              )}
+              ورود سریع با حساب مدیر نمونه (09121234567)
+            </button>
+
             <button
               id="admin-go-to-auth-btn"
               onClick={onNavigateToAuth}
-              className="px-6 py-3 bg-[#2D4F3E] hover:bg-[#243f32] text-white font-bold rounded-xl shadow-lg transition-all flex items-center gap-2"
+              className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl border border-slate-300 transition-all flex items-center gap-2"
             >
-              <Users className="w-5 h-5" />
-              ورود با حساب کاربری مدیر
+              <Users className="w-5 h-5 text-slate-600" />
+              صفحه ورود اختصاصی
             </button>
           </div>
 
@@ -514,21 +723,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span>ساخت یا ارتقای کاربر مدیر از طریق ترمینال cPanel (بدون API عمومی):</span>
             </div>
             <p className="text-slate-400 text-xs">
-              مطابق اصول امنیتی، ساخت ادمین صرفاً از طریق اسکریپت سروری اجرا می‌شود:
+              مطابق اصول امنیتی، ساخت ادمین در محیط پروداکشن صرفاً از طریق اسکریپت سروری CLI اجرا می‌شود:
             </p>
             <div className="bg-black/50 p-3 rounded text-left font-mono text-emerald-300 overflow-x-auto" dir="ltr">
               node create-admin.js --phone 09121234567 --password admin123456 --name "مدیر کل"
             </div>
-            <p className="text-slate-400 text-xs">
-              یا با حساب پیش‌فرض از پیش تعریف‌شده وارد شوید:
-              <br />
-              شماره همراه: <strong className="text-white">09121234567</strong> | رمز عبور: <strong className="text-white">admin123456</strong>
-            </p>
           </div>
         </div>
       </div>
     );
   }
+
+  // Pending orders in stats for quick action
+  const pendingOrdersList = orders.filter((o) => o.status === 'pending');
 
   return (
     <div id="admin-panel-container" className="space-y-6 text-right" dir="rtl">
@@ -552,21 +759,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* Admin Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-[#1e3428] to-slate-900 text-white p-6 rounded-2xl shadow-xl border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      {/* Admin Top Banner */}
+      <div className="bg-gradient-to-r from-slate-950 via-[#1b3426] to-slate-950 text-white p-6 rounded-2xl shadow-xl border border-emerald-900/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-bold flex items-center gap-1.5">
+            <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-bold flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              مدیر ارشد سامانه (Admin Role Verified)
+              مدیر ارشد سامانه (Role: {user.role})
             </span>
-            <span className="text-xs text-slate-400 font-mono">MySQL 8.0 / Sequelize ORM</span>
+            <span className="text-xs text-slate-400 font-mono">MySQL 8.0 • Sequelize ORM</span>
           </div>
           <h1 className="text-2xl font-black tracking-tight">
-            پنل مدیریت و پایش نهاده‌های کشاورزی
+            مرکز مدیریت و کنترل نهاده‌های کشاورزی
           </h1>
           <p className="text-sm text-slate-300">
-            مدیریت بلادرنگ محصولات (کود، سم، بذر)، کنترل فاکتورها و تغییر وضعیت سفارشات با اتصال مستقیم به پایگاه داده
+            پایش آمار فروش، انبارداری نهاده‌ها (کود، سم، بذر) و مدیریت چرخه فاکتور و ارسال سفارش‌ها به مزارع
           </p>
         </div>
 
@@ -577,17 +784,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               fetchStats();
               fetchOrders();
               fetchAdminProducts();
-              showToast('آمار و اطلاعات از دیتابیس با موفقیت بازخوانی شدند.', 'success');
+              showToast('آمار و اطلاعات پایگاه داده بازخوانی شدند.', 'success');
             }}
             className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
           >
             <RefreshCw className={`w-4 h-4 ${loadingStats ? 'animate-spin' : ''}`} />
-            بازخوانی کوئری‌ها
+            بازخوانی داده‌ها
           </button>
         </div>
       </div>
 
-      {/* Admin Navigation Tabs */}
+      {/* Main Admin Navigation Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         <button
           id="admin-tab-dashboard"
@@ -599,20 +806,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <TrendingUp className="w-4 h-4" />
-          داشبورد و آمار زنده
-        </button>
-
-        <button
-          id="admin-tab-orders"
-          onClick={() => setActiveTab('orders')}
-          className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
-            activeTab === 'orders'
-              ? 'bg-[#2D4F3E] text-white shadow-md'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          مدیریت سفارشات ({stats?.total_orders || orders.length})
+          داشبورد و آمار تحلیلی
         </button>
 
         <button
@@ -629,6 +823,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </button>
 
         <button
+          id="admin-tab-orders"
+          onClick={() => setActiveTab('orders')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'orders'
+              ? 'bg-[#2D4F3E] text-white shadow-md'
+              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <ShoppingCart className="w-4 h-4" />
+          مدیریت سفارش‌ها ({stats?.total_orders || orders.length})
+          {stats && stats.orders_by_status.pending > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px]">
+              {stats.orders_by_status.pending} در انتظار
+            </span>
+          )}
+        </button>
+
+        <button
           id="admin-tab-categories"
           onClick={() => setActiveTab('categories')}
           className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
@@ -638,7 +850,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Layers className="w-4 h-4" />
-          مدیریت دسته‌بندی‌ها ({categories.length})
+          دسته‌بندی‌ها ({categories.length})
         </button>
 
         <button
@@ -651,7 +863,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Terminal className="w-4 h-4" />
-          اسکریپت ساخت ادمین
+          امنیت و اسکریپت CLI
         </button>
       </div>
 
@@ -669,32 +881,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* 4 Main Real SQL Metric Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* 1. Total Orders */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 hover:border-[#2D4F3E]/40 transition-colors">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-500">تعداد کل سفارش‌ها</span>
-                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
                   <ShoppingCart className="w-5 h-5" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-slate-900">
+              <div className="text-2xl font-black text-slate-900 font-mono">
                 {stats ? stats.total_orders.toLocaleString('fa-IR') : '...'}
               </div>
               <p className="text-xs text-slate-400">
-                محاسبه از جدول <code className="font-mono text-slate-600">orders</code>
+                ثبت شده در جدول <code className="font-mono text-slate-600">orders</code>
               </p>
             </div>
 
             {/* 2. Total Revenue */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 hover:border-emerald-500/40 transition-colors">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-500">مجموع فروش و درآمد</span>
-                <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
                   <TrendingUp className="w-5 h-5" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-emerald-700">
+              <div className="text-2xl font-black text-emerald-700 font-mono">
                 {stats ? stats.total_revenue.toLocaleString('fa-IR') : '...'}
-                <span className="text-xs text-slate-500 font-normal mr-1">تومان</span>
+                <span className="text-xs text-slate-500 font-normal mr-1 font-sans">تومان</span>
               </div>
               <p className="text-xs text-slate-400">
                 مجموع فاکتورهای غیر لغو شده
@@ -702,33 +914,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             {/* 3. Low Stock Alert */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 hover:border-amber-500/40 transition-colors">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-500">موجودی بحرانی (کمتر از ۱۰)</span>
-                <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
                   <AlertTriangle className="w-5 h-5" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-amber-600">
+              <div className="text-2xl font-black text-amber-600 font-mono">
                 {stats ? stats.low_stock_count.toLocaleString('fa-IR') : '...'}
-                <span className="text-xs text-slate-500 font-normal mr-1">محصول</span>
+                <span className="text-xs text-slate-500 font-normal mr-1 font-sans">نهاده</span>
               </div>
               <p className="text-xs text-slate-400">
-                نیاز فوری به شارژ انبار
+                اقلام نیازمند شارژ فوری انبار
               </p>
             </div>
 
             {/* 4. New Users 30 Days */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 hover:border-indigo-500/40 transition-colors">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-500">کاربران جدید (۳۰ روز اخیر)</span>
-                <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
                   <Users className="w-5 h-5" />
                 </div>
               </div>
-              <div className="text-2xl font-black text-indigo-600">
+              <div className="text-2xl font-black text-indigo-600 font-mono">
                 {stats ? stats.new_users_30d.toLocaleString('fa-IR') : '...'}
-                <span className="text-xs text-slate-500 font-normal mr-1">کشاورز</span>
+                <span className="text-xs text-slate-500 font-normal mr-1 font-sans">کشاورز</span>
               </div>
               <p className="text-xs text-slate-400">
                 کل کاربران: {stats ? stats.total_users.toLocaleString('fa-IR') : '...'}
@@ -736,83 +948,207 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          {/* Orders by Status Real Distribution */}
+          {/* Interactive Order Status Distribution Bar */}
           {stats && stats.orders_by_status && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-[#2D4F3E]" />
-                وضعیت تفکیکی سفارشات در سیستم (بر اساس کوئری MySQL)
-              </h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-[#2D4F3E]" />
+                  توزیع وضعیت سفارش‌ها در پایگاه داده
+                </h3>
+                <span className="text-xs text-slate-500 font-mono">
+                  کل: {stats.total_orders.toLocaleString('fa-IR')} سفارش
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              {stats.total_orders > 0 && (
+                <div className="w-full h-3 rounded-full overflow-hidden flex bg-slate-100">
+                  <div style={{ width: `${(stats.orders_by_status.pending / stats.total_orders) * 100}%` }} className="bg-amber-400" title="در انتظار" />
+                  <div style={{ width: `${(stats.orders_by_status.confirmed / stats.total_orders) * 100}%` }} className="bg-blue-500" title="تأیید شده" />
+                  <div style={{ width: `${(stats.orders_by_status.processing / stats.total_orders) * 100}%` }} className="bg-purple-500" title="در حال بسته‌بندی" />
+                  <div style={{ width: `${(stats.orders_by_status.shipped / stats.total_orders) * 100}%` }} className="bg-cyan-500" title="ارسال شده" />
+                  <div style={{ width: `${(stats.orders_by_status.delivered / stats.total_orders) * 100}%` }} className="bg-emerald-500" title="تحویل شده" />
+                  <div style={{ width: `${(stats.orders_by_status.cancelled / stats.total_orders) * 100}%` }} className="bg-rose-400" title="لغو شده" />
+                </div>
+              )}
+
+              {/* Status Chips with Click to Filter */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-center">
-                  <div className="text-xs text-amber-700 font-semibold">در انتظار تأیید</div>
-                  <div className="text-xl font-black text-amber-900 mt-1">{stats.orders_by_status.pending.toLocaleString('fa-IR')}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-center">
-                  <div className="text-xs text-blue-700 font-semibold">تأیید شده</div>
-                  <div className="text-xl font-black text-blue-900 mt-1">{stats.orders_by_status.confirmed.toLocaleString('fa-IR')}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-center">
-                  <div className="text-xs text-indigo-700 font-semibold">در حال پردازش</div>
-                  <div className="text-xl font-black text-indigo-900 mt-1">{stats.orders_by_status.processing.toLocaleString('fa-IR')}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-cyan-50 border border-cyan-200 text-center">
-                  <div className="text-xs text-cyan-700 font-semibold">ارسال شده</div>
-                  <div className="text-xl font-black text-cyan-900 mt-1">{stats.orders_by_status.shipped.toLocaleString('fa-IR')}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
-                  <div className="text-xs text-emerald-700 font-semibold">تحویل شده</div>
-                  <div className="text-xl font-black text-emerald-900 mt-1">{stats.orders_by_status.delivered.toLocaleString('fa-IR')}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-center">
-                  <div className="text-xs text-rose-700 font-semibold">لغو شده</div>
-                  <div className="text-xl font-black text-rose-900 mt-1">{stats.orders_by_status.cancelled.toLocaleString('fa-IR')}</div>
-                </div>
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('pending');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-amber-800 font-semibold">در انتظار تأیید</div>
+                  <div className="text-xl font-black text-amber-950 mt-1 font-mono">{stats.orders_by_status.pending.toLocaleString('fa-IR')}</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('confirmed');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-blue-800 font-semibold">تأیید شده</div>
+                  <div className="text-xl font-black text-blue-950 mt-1 font-mono">{stats.orders_by_status.confirmed.toLocaleString('fa-IR')}</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('processing');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-purple-800 font-semibold">در حال پردازش</div>
+                  <div className="text-xl font-black text-purple-950 mt-1 font-mono">{stats.orders_by_status.processing.toLocaleString('fa-IR')}</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('shipped');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-cyan-800 font-semibold">ارسال به مزرعه</div>
+                  <div className="text-xl font-black text-cyan-950 mt-1 font-mono">{stats.orders_by_status.shipped.toLocaleString('fa-IR')}</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('delivered');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-emerald-800 font-semibold">تحویل شده</div>
+                  <div className="text-xl font-black text-emerald-950 mt-1 font-mono">{stats.orders_by_status.delivered.toLocaleString('fa-IR')}</div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('cancelled');
+                    setActiveTab('orders');
+                  }}
+                  className="p-3 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-center transition-colors"
+                >
+                  <div className="text-xs text-rose-800 font-semibold">لغو شده</div>
+                  <div className="text-xl font-black text-rose-950 mt-1 font-mono">{stats.orders_by_status.cancelled.toLocaleString('fa-IR')}</div>
+                </button>
               </div>
             </div>
           )}
 
-          {/* Low Stock Warning Table */}
+          {/* Quick Pending Orders Review Panel */}
+          {pendingOrdersList.length > 0 && (
+            <div className="bg-amber-50/70 p-6 rounded-2xl border border-amber-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-700 animate-pulse" />
+                  <h3 className="text-base font-bold text-amber-950">
+                    سفارشات نیازمند تعیین تکلیف فوری ({pendingOrdersList.length} سفارش)
+                  </h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setOrdersFilterStatus('pending');
+                    setActiveTab('orders');
+                  }}
+                  className="text-xs font-bold text-[#2D4F3E] hover:underline"
+                >
+                  مشاهده همه در بخش سفارش‌ها
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {pendingOrdersList.slice(0, 3).map((ord) => (
+                  <div key={ord.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-2.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-mono font-bold text-indigo-700">{ord.tracking_code || `ORD-${ord.id}`}</span>
+                      <span className="text-slate-500 font-mono text-[11px]">
+                        {new Date(ord.created_at).toLocaleDateString('fa-IR')}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-800 font-bold truncate">
+                      {ord.user?.full_name || 'کاربر گرامی'} • <span className="font-mono font-normal text-slate-600">{ord.user?.phone_number}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-xs font-mono font-bold text-emerald-800 bg-emerald-50/60 p-2 rounded-lg">
+                      <span>مبلغ کل:</span>
+                      <span>{ord.total_price.toLocaleString('fa-IR')} تومان</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => handleUpdateOrderStatus(ord.id, 'confirmed')}
+                        disabled={updatingOrderId === ord.id}
+                        className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-sm"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        تأیید فوری
+                      </button>
+
+                      <button
+                        onClick={() => handleUpdateOrderStatus(ord.id, 'cancelled')}
+                        disabled={updatingOrderId === ord.id}
+                        className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold border border-rose-200"
+                      >
+                        رد
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Low Stock Warning Table with Quick Restock Modal Action */}
           {stats && stats.low_stock_products && stats.low_stock_products.length > 0 && (
-            <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-200 shadow-sm space-y-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-base font-bold text-amber-900 flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  هشدار اقلام رو به اتمام در انبار (موجودی ≤ ۱۰)
+                  اقلام نیازمند شارژ انبار (موجودی ≤ ۱۰)
                 </h3>
                 <button
                   onClick={() => setActiveTab('products')}
                   className="text-xs text-[#2D4F3E] font-bold hover:underline"
                 >
-                  مشاهده همه در بخش محصولات
+                  مدیریت کل انبار
                 </button>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-xs">
-                  <thead className="bg-amber-100/70 text-amber-950 font-bold">
+                  <thead className="bg-amber-50 text-amber-950 font-bold border-b border-amber-200">
                     <tr>
-                      <th className="p-3 rounded-r-lg">شناسه</th>
+                      <th className="p-3">شناسه</th>
                       <th className="p-3">نام نهاده</th>
-                      <th className="p-3">نوع</th>
+                      <th className="p-3">نوع نهاده</th>
                       <th className="p-3">برند</th>
                       <th className="p-3">قیمت واحد</th>
                       <th className="p-3">موجودی فعلی</th>
-                      <th className="p-3 rounded-l-lg text-center">اقدام</th>
+                      <th className="p-3 text-center">اقدام سریع</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-amber-200/60">
+                  <tbody className="divide-y divide-slate-100">
                     {stats.low_stock_products.map((prod) => (
-                      <tr key={prod.id} className="hover:bg-amber-100/40">
-                        <td className="p-3 font-mono font-bold">#{prod.id}</td>
-                        <td className="p-3 font-bold text-slate-800">{prod.name}</td>
+                      <tr key={prod.id} className="hover:bg-slate-50">
+                        <td className="p-3 font-mono font-bold text-slate-500">#{prod.id}</td>
+                        <td className="p-3 font-bold text-slate-900">{prod.name}</td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded bg-white text-slate-700 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
                             {prod.product_type}
                           </span>
                         </td>
                         <td className="p-3 text-slate-600">{prod.brand || '-'}</td>
-                        <td className="p-3 font-mono">{prod.price.toLocaleString('fa-IR')} ت</td>
+                        <td className="p-3 font-mono font-bold">{prod.price.toLocaleString('fa-IR')} ت</td>
                         <td className="p-3">
                           <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-bold font-mono">
                             {prod.stock} عدد
@@ -822,12 +1158,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <button
                             onClick={() => {
                               const found = adminProducts.find((p) => p.id === prod.id);
-                              if (found) handleOpenEditProduct(found);
-                              else setActiveTab('products');
+                              if (found) {
+                                handleOpenQuickStock(found);
+                              } else {
+                                handleOpenQuickStock({
+                                  id: prod.id,
+                                  name: prod.name,
+                                  price: prod.price,
+                                  stock: prod.stock,
+                                  category_id: 1,
+                                  image_url: null,
+                                  product_type: prod.product_type,
+                                  required_permit_number: null,
+                                  msds_file_url: null,
+                                  brand: prod.brand,
+                                  package_size: null,
+                                  description: null,
+                                });
+                              }
                             }}
-                            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold"
+                            className="px-3 py-1.5 bg-[#2D4F3E] hover:bg-[#234032] text-white rounded-lg font-bold text-xs shadow-sm transition-all flex items-center gap-1 mx-auto"
                           >
-                            شارژ موجودی
+                            <Plus className="w-3.5 h-3.5" />
+                            شارژ سریع انبار
                           </button>
                         </td>
                       </tr>
@@ -841,201 +1194,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 2. ORDER MANAGEMENT VIEW */}
-      {/* ========================================================================= */}
-      {activeTab === 'orders' && (
-        <div id="admin-orders-view" className="space-y-4">
-          {/* Filter Bar */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              <span className="text-xs font-bold text-slate-500">فیلتر وضعیت:</span>
-              {['all', 'pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setOrdersFilterStatus(st)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    ordersFilterStatus === st
-                      ? 'bg-[#2D4F3E] text-white shadow'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  {st === 'all' && 'همه سفارش‌ها'}
-                  {st === 'pending' && 'در انتظار'}
-                  {st === 'confirmed' && 'تأیید شده'}
-                  {st === 'processing' && 'در حال پردازش'}
-                  {st === 'shipped' && 'ارسال شده'}
-                  {st === 'delivered' && 'تحویل شده'}
-                  {st === 'cancelled' && 'لغو شده'}
-                </button>
-              ))}
-            </div>
-
-            <div className="relative w-full md:w-64">
-              <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                placeholder="جستجو با کد رهگیری یا آدرس..."
-                value={ordersSearch}
-                onChange={(e) => setOrdersSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchOrders()}
-                className="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
-              />
-            </div>
-          </div>
-
-          {/* Orders Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            {loadingOrders ? (
-              <div className="p-12 text-center text-slate-500 text-sm">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#2D4F3E]" />
-                در حال استعلام سفارشات از MySQL...
-              </div>
-            ) : orders.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-sm">
-                هیچ سفارشی مطابق با فیلترهای انتخابی یافت نشد.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="p-3.5">کد رهگیری</th>
-                      <th className="p-3.5">کشاورز / خریدار</th>
-                      <th className="p-3.5">تلفن تماس</th>
-                      <th className="p-3.5">مبلغ کل فاکتور</th>
-                      <th className="p-3.5">تعداد اقلام</th>
-                      <th className="p-3.5">وضعیت</th>
-                      <th className="p-3.5">تغییر وضعیت در دیتابیس</th>
-                      <th className="p-3.5 text-center">جزئیات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {orders.map((order) => {
-                      const isExpanded = expandedOrderId === order.id;
-                      const isUpdating = updatingOrderId === order.id;
-
-                      return (
-                        <React.Fragment key={order.id}>
-                          <tr className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-3.5 font-mono font-bold text-indigo-700">
-                              {order.tracking_code || `ORD-${order.id}`}
-                            </td>
-                            <td className="p-3.5 font-bold text-slate-800">
-                              {order.user?.full_name || 'کاربر مهمان'}
-                            </td>
-                            <td className="p-3.5 font-mono text-slate-600">
-                              {order.user?.phone_number || '-'}
-                            </td>
-                            <td className="p-3.5 font-bold text-emerald-800 font-mono">
-                              {order.total_price.toLocaleString('fa-IR')} تومان
-                            </td>
-                            <td className="p-3.5 font-mono text-slate-600">
-                              {order.items?.length || 0} قلم
-                            </td>
-                            <td className="p-3.5">
-                              {getStatusBadge(order.status)}
-                            </td>
-                            <td className="p-3.5">
-                              <select
-                                disabled={isUpdating}
-                                value={order.status}
-                                onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value as OrderStatus)}
-                                className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2D4F3E] font-medium"
-                              >
-                                <option value="pending">در انتظار تأیید (Pending)</option>
-                                <option value="confirmed">تأیید شده (Confirmed)</option>
-                                <option value="processing">در حال پردازش (Processing)</option>
-                                <option value="shipped">ارسال به مزرعه (Shipped)</option>
-                                <option value="delivered">تحویل داده شد (Delivered)</option>
-                                <option value="cancelled">لغو سفارش (Cancelled)</option>
-                              </select>
-                            </td>
-                            <td className="p-3.5 text-center">
-                              <button
-                                onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
-                                className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
-                              >
-                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                              </button>
-                            </td>
-                          </tr>
-
-                          {/* Expanded Order Items Row */}
-                          {isExpanded && (
-                            <tr className="bg-slate-50/70 border-b border-slate-200">
-                              <td colSpan={8} className="p-4 space-y-3">
-                                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2">
-                                  <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                                    <span>آدرس مقصد ارسال به مزرعه / انبار:</span>
-                                    <span className="text-slate-400 font-mono font-normal">
-                                      تاریخ ثبت: {new Date(order.created_at).toLocaleDateString('fa-IR')}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                    {order.shipping_address || 'آدرس ثبت نشده است'}
-                                  </p>
-
-                                  <div className="pt-2">
-                                    <div className="text-xs font-bold text-slate-700 mb-2">ریز اقلام فاکتور:</div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                      {order.items?.map((item) => (
-                                        <div
-                                          key={item.id}
-                                          className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 flex items-center justify-between gap-2"
-                                        >
-                                          <div className="space-y-0.5">
-                                            <div className="font-bold text-slate-800 truncate max-w-[160px]">
-                                              {item.product?.name || `کالا #${item.product_id}`}
-                                            </div>
-                                            <div className="text-[11px] text-slate-500">
-                                              تعداد: <span className="font-bold font-mono">{item.quantity}</span> × {item.unit_price.toLocaleString('fa-IR')} ت
-                                            </div>
-                                          </div>
-                                          <div className="text-xs font-bold font-mono text-emerald-700">
-                                            {(item.quantity * item.unit_price).toLocaleString('fa-IR')} ت
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 3. PRODUCT MANAGEMENT VIEW */}
+      {/* 2. PRODUCT MANAGEMENT VIEW */}
       {/* ========================================================================= */}
       {activeTab === 'products' && (
         <div id="admin-products-view" className="space-y-4">
-          {/* Product Actions Bar */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          
+          {/* Top Actions & Filters Bar */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              {/* Add Product Button */}
               <button
                 id="admin-add-product-btn"
                 onClick={handleOpenCreateProduct}
-                className="px-4 py-2.5 bg-[#2D4F3E] hover:bg-[#243f32] text-white font-bold rounded-xl text-xs shadow transition-all flex items-center gap-2"
+                className="px-5 py-2.5 bg-[#2D4F3E] hover:bg-[#234032] text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
                 افزودن محصول جدید (کود، سم، بذر)
               </button>
 
+              {/* Search Box */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="جستجو بر اساس نام، برند، شناسه، شماره پروانه..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
+                />
+              </div>
+            </div>
+
+            {/* Filter Chips */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+              {/* Type Filter */}
               <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                 {['all', 'کود', 'سم', 'بذر'].map((type) => (
                   <button
                     key={type}
                     onClick={() => setProductTypeFilter(type)}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                    className={`px-3 py-1 rounded-lg font-bold transition-all ${
                       productTypeFilter === type
                         ? 'bg-white text-[#2D4F3E] shadow-sm'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1045,17 +1243,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </button>
                 ))}
               </div>
-            </div>
 
-            <div className="relative w-full md:w-64">
-              <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                placeholder="جستجو بر اساس نام، برند، مجوز..."
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                className="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
-              />
+              {/* Category Filter */}
+              <select
+                value={productCategoryFilter}
+                onChange={(e) => setProductCategoryFilter(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
+              >
+                <option value="all">همه دسته‌بندی‌ها</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id.toString()}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Stock Status Filter */}
+              <select
+                value={productStockFilter}
+                onChange={(e) => setProductStockFilter(e.target.value as any)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
+              >
+                <option value="all">وضعیت انبار: همه</option>
+                <option value="in_stock">موجود در انبار (&gt; ۱۰)</option>
+                <option value="low_stock">موجودی بحرانی (۱ تا ۱۰)</option>
+                <option value="out_of_stock">ناموجود (۰ عدد)</option>
+              </select>
+
+              {/* Sort Order */}
+              <select
+                value={productSortBy}
+                onChange={(e) => setProductSortBy(e.target.value as any)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
+              >
+                <option value="newest">مرتب‌سازی: جدیدترین</option>
+                <option value="price_asc">قیمت: کم به زیاد</option>
+                <option value="price_desc">قیمت: زیاد به کم</option>
+                <option value="stock_asc">موجودی: کم به زیاد</option>
+                <option value="stock_desc">موجودی: زیاد به کم</option>
+              </select>
+
+              <span className="text-slate-400 font-mono text-[11px] mr-auto">
+                نمایش {filteredProducts.length} از {adminProducts.length} محصول
+              </span>
             </div>
           </div>
 
@@ -1064,11 +1294,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {loadingProducts ? (
               <div className="p-12 text-center text-slate-500 text-sm">
                 <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#2D4F3E]" />
-                در حال بارگذاری لیست محصولات...
+                در حال بارگذاری لیست محصولات از پایگاه داده MySQL...
               </div>
-            ) : adminProducts.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 text-sm">
-                هیچ محصولی در دیتابیس موجود نیست.
+            ) : filteredProducts.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-sm space-y-2">
+                <Package className="w-8 h-8 text-slate-400 mx-auto" />
+                <p>هیچ محصولی مطابق با فیلترهای انتخابی یافت نشد.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1077,110 +1308,410 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <tr>
                       <th className="p-3.5">شناسه</th>
                       <th className="p-3.5">تصویر</th>
-                      <th className="p-3.5">نام محصول</th>
+                      <th className="p-3.5">نام نهاده و برند</th>
                       <th className="p-3.5">نوع</th>
                       <th className="p-3.5">دسته‌بندی</th>
-                      <th className="p-3.5">قیمت (تومان)</th>
+                      <th className="p-3.5">قیمت واحد (تومان)</th>
                       <th className="p-3.5">موجودی انبار</th>
-                      <th className="p-3.5">شماره پروانه</th>
-                      <th className="p-3.5">فایل MSDS</th>
+                      <th className="p-3.5">ویترین</th>
+                      <th className="p-3.5">شماره پروانه / مجوز</th>
+                      <th className="p-3.5">برگه ایمنی MSDS</th>
                       <th className="p-3.5 text-center">عملیات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {adminProducts
-                      .filter((p) => {
-                        const matchesType = productTypeFilter === 'all' || p.product_type === productTypeFilter;
-                        const matchesSearch =
-                          !productSearch.trim() ||
-                          p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-                          (p.brand && p.brand.toLowerCase().includes(productSearch.toLowerCase())) ||
-                          (p.required_permit_number && p.required_permit_number.includes(productSearch));
-                        return matchesType && matchesSearch;
-                      })
-                      .map((prod) => (
-                        <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="p-3.5 font-mono font-bold text-slate-500">#{prod.id}</td>
-                          <td className="p-3.5">
-                            {prod.image_url ? (
-                              <img
-                                src={prod.image_url}
-                                alt={prod.name}
-                                className="w-10 h-10 object-cover rounded-lg border border-slate-200"
-                              />
-                            ) : (
-                              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
-                                <Package className="w-5 h-5" />
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3.5">
-                            <div className="font-bold text-slate-800">{prod.name}</div>
-                            {prod.brand && <div className="text-[11px] text-slate-500">{prod.brand}</div>}
-                          </td>
-                          <td className="p-3.5">
-                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              {prod.product_type}
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-slate-600">
-                            {prod.category?.name || categories.find((c) => c.id === prod.category_id)?.name || '-'}
-                          </td>
-                          <td className="p-3.5 font-bold font-mono text-slate-900">
-                            {prod.price.toLocaleString('fa-IR')}
-                          </td>
-                          <td className="p-3.5">
-                            <span
-                              className={`px-2.5 py-1 rounded-full font-mono font-bold text-xs ${
-                                prod.stock <= 10
-                                  ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                              }`}
-                            >
-                              {prod.stock} عدد
-                            </span>
-                          </td>
-                          <td className="p-3.5 font-mono text-slate-600 text-[11px]">
-                            {prod.required_permit_number || '-'}
-                          </td>
-                          <td className="p-3.5">
-                            {prod.msds_file_url ? (
-                              <a
-                                href={prod.msds_file_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded border border-blue-200 hover:bg-blue-100 text-[11px] font-bold"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                دانلود PDF
-                              </a>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">ندارد</span>
-                            )}
-                          </td>
-                          <td className="p-3.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                onClick={() => handleOpenEditProduct(prod)}
-                                className="p-1.5 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 text-slate-700 rounded-lg transition-colors"
-                                title="ویرایش محصول"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteProduct(prod)}
-                                className="p-1.5 bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 rounded-lg transition-colors"
-                                title="حذف یا غیرفعال‌سازی ایمن"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                    {filteredProducts.map((prod) => (
+                      <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-3.5 font-mono font-bold text-slate-500">#{prod.id}</td>
+                        <td className="p-3.5">
+                          {prod.image_url ? (
+                            <img
+                              src={prod.image_url}
+                              alt={prod.name}
+                              className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-xs"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
+                              <Package className="w-5 h-5" />
                             </div>
-                          </td>
-                        </tr>
-                      ))}
+                          )}
+                        </td>
+                        <td className="p-3.5">
+                          <div className="font-bold text-slate-900">{prod.name}</div>
+                          {prod.brand && <div className="text-[11px] text-slate-500">برند: {prod.brand}</div>}
+                        </td>
+                        <td className="p-3.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                              prod.product_type === 'کود'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : prod.product_type === 'سم'
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                : 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                            }`}
+                          >
+                            {prod.product_type}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-600">
+                          {prod.category?.name || categories.find((c) => c.id === prod.category_id)?.name || '-'}
+                        </td>
+                        <td className="p-3.5 font-bold font-mono text-slate-900">
+                          {prod.price.toLocaleString('fa-IR')}
+                        </td>
+                        <td className="p-3.5">
+                          <button
+                            onClick={() => handleOpenQuickStock(prod)}
+                            className={`px-2.5 py-1 rounded-full font-mono font-bold text-xs flex items-center gap-1.5 transition-transform hover:scale-105 ${
+                              prod.stock <= 0
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : prod.stock <= 10
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            }`}
+                            title="کلیک برای شارژ سریع موجودی"
+                          >
+                            <span>{prod.stock} عدد</span>
+                            <Edit2 className="w-3 h-3 opacity-70" />
+                          </button>
+                        </td>
+                        <td className="p-3.5">
+                          <button
+                            onClick={() => handleToggleProductActive(prod)}
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-bold transition-colors ${
+                              (prod.is_active ?? true)
+                                ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                            }`}
+                            title="تغییر وضعیت نمایش در فروشگاه"
+                          >
+                            {(prod.is_active ?? true) ? 'فعال' : 'غیرفعال'}
+                          </button>
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-600 text-[11px]">
+                          {prod.required_permit_number || '-'}
+                        </td>
+                        <td className="p-3.5">
+                          {prod.msds_file_url ? (
+                            <a
+                              href={prod.msds_file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 hover:bg-blue-100 text-[11px] font-bold"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              PDF
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">ندارد</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenQuickStock(prod)}
+                              className="p-1.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 rounded-lg transition-colors"
+                              title="شارژ سریع موجودی و اصلاح قیمت"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditProduct(prod)}
+                              className="p-1.5 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 text-slate-700 rounded-lg transition-colors"
+                              title="ویرایش کامل محصول و فایل‌ها"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteProduct(prod)}
+                              className="p-1.5 bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 rounded-lg transition-colors"
+                              title="حذف یا غیرفعال‌سازی ایمن"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. ORDER MANAGEMENT VIEW */}
+      {/* ========================================================================= */}
+      {activeTab === 'orders' && (
+        <div id="admin-orders-view" className="space-y-4">
+          
+          {/* Orders Filter & Search Toolbar */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              {/* Status Tabs */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'all', label: 'همه سفارش‌ها' },
+                  { id: 'pending', label: 'در انتظار' },
+                  { id: 'confirmed', label: 'تأیید شده' },
+                  { id: 'processing', label: 'در حال پردازش' },
+                  { id: 'shipped', label: 'ارسال شده' },
+                  { id: 'delivered', label: 'تحویل شده' },
+                  { id: 'cancelled', label: 'لغو شده' },
+                ].map((st) => (
+                  <button
+                    key={st.id}
+                    onClick={() => setOrdersFilterStatus(st.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      ordersFilterStatus === st.id
+                        ? 'bg-[#2D4F3E] text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full md:w-72">
+                <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="جستجو با کد رهگیری، نام، تلفن یا آدرس..."
+                  value={ordersSearch}
+                  onChange={(e) => setOrdersSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && fetchOrders()}
+                  className="w-full pr-9 pl-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#2D4F3E]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Orders List / Cards */}
+          <div className="space-y-3">
+            {loadingOrders ? (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#2D4F3E]" />
+                در حال استعلام سفارش‌های ثبت شده از پایگاه داده MySQL...
+              </div>
+            ) : orders.length === 0 ? (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500 text-sm">
+                هیچ سفارشی مطابق با فیلترهای انتخابی یافت نشد.
+              </div>
+            ) : (
+              orders.map((order) => {
+                const isExpanded = expandedOrderId === order.id;
+                const isUpdating = updatingOrderId === order.id;
+                const nextAction = getNextStatusAction(order.status);
+                const step = getOrderStep(order.status);
+
+                return (
+                  <div
+                    key={order.id}
+                    className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:border-slate-300 transition-colors"
+                  >
+                    {/* Order Main Header Row */}
+                    <div className="p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                      
+                      {/* Left Block: Tracking, Date, Customer */}
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-bold text-sm text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-lg border border-indigo-200">
+                            {order.tracking_code || `AGRI-ORD-${order.id}`}
+                          </span>
+                          {getStatusBadge(order.status)}
+                          <span className="text-xs text-slate-400 font-mono">
+                            {new Date(order.created_at).toLocaleDateString('fa-IR', {
+                              year: 'numeric',
+                              month: 'numeric',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+
+                        <div className="text-sm font-bold text-slate-900 flex items-center gap-2 pt-0.5">
+                          <span>{order.user?.full_name || 'کاربر گرامی'}</span>
+                          <span className="text-slate-400 font-normal">•</span>
+                          <span className="font-mono text-xs font-normal text-slate-600 flex items-center gap-1">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            {order.user?.phone_number || '-'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Center Block: Total & Items */}
+                      <div className="flex items-center gap-4 bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs">
+                        <div>
+                          <div className="text-slate-500 text-[11px]">مبلغ کل فاکتور:</div>
+                          <div className="font-mono font-bold text-sm text-emerald-800">
+                            {order.total_price.toLocaleString('fa-IR')} تومان
+                          </div>
+                        </div>
+                        <div className="border-r border-slate-200 pr-3">
+                          <div className="text-slate-500 text-[11px]">تعداد اقلام:</div>
+                          <div className="font-mono font-bold text-slate-800">
+                            {order.items?.length || 0} قلم
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Block: Status Dropdown, Next Action & Print */}
+                      <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+                        
+                        {/* Next Step Quick Action Button */}
+                        {nextAction && (
+                          <button
+                            disabled={isUpdating}
+                            onClick={() => handleUpdateOrderStatus(order.id, nextAction.target)}
+                            className={`px-3 py-1.5 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 ${nextAction.color}`}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            {nextAction.label}
+                          </button>
+                        )}
+
+                        {/* Status Select */}
+                        <select
+                          disabled={isUpdating}
+                          value={order.status}
+                          onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value as OrderStatus)}
+                          className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2D4F3E] font-medium"
+                        >
+                          <option value="pending">در انتظار تأیید</option>
+                          <option value="confirmed">تأیید شده</option>
+                          <option value="processing">در حال پردازش</option>
+                          <option value="shipped">ارسال به مزرعه</option>
+                          <option value="delivered">تحویل داده شد</option>
+                          <option value="cancelled">لغو سفارش</option>
+                        </select>
+
+                        {/* Print Invoice Button */}
+                        <button
+                          onClick={() => {
+                            setSelectedInvoiceOrder(order);
+                            setIsInvoiceModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                          title="چاپ یا مشاهده فاکتور رسمی"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>فاکتور</span>
+                        </button>
+
+                        {/* Toggle Details Expand */}
+                        <button
+                          onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                          className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"
+                          title={isExpanded ? 'بستن جزئیات' : 'مشاهده جزئیات'}
+                        >
+                          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {/* Visual 5-Stage Stepper */}
+                    {order.status !== 'cancelled' && (
+                      <div className="px-5 pb-3">
+                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between text-[11px] font-bold">
+                          <div className={`flex items-center gap-1.5 ${step >= 1 ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step >= 1 ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>1</div>
+                            <span>ثبت سفارش</span>
+                          </div>
+                          <div className={`h-0.5 flex-1 mx-2 ${step >= 2 ? 'bg-emerald-600' : 'bg-slate-200'}`} />
+
+                          <div className={`flex items-center gap-1.5 ${step >= 2 ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step >= 2 ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>2</div>
+                            <span>تأیید فاکتور</span>
+                          </div>
+                          <div className={`h-0.5 flex-1 mx-2 ${step >= 3 ? 'bg-emerald-600' : 'bg-slate-200'}`} />
+
+                          <div className={`flex items-center gap-1.5 ${step >= 3 ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step >= 3 ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>3</div>
+                            <span>بسته‌بندی</span>
+                          </div>
+                          <div className={`h-0.5 flex-1 mx-2 ${step >= 4 ? 'bg-emerald-600' : 'bg-slate-200'}`} />
+
+                          <div className={`flex items-center gap-1.5 ${step >= 4 ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step >= 4 ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>4</div>
+                            <span>ارسال به باربری</span>
+                          </div>
+                          <div className={`h-0.5 flex-1 mx-2 ${step >= 5 ? 'bg-emerald-600' : 'bg-slate-200'}`} />
+
+                          <div className={`flex items-center gap-1.5 ${step >= 5 ? 'text-emerald-700 font-black' : 'text-slate-400'}`}>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step >= 5 ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>5</div>
+                            <span>تحویل مزرعه</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Expanded Order Items Row */}
+                    {isExpanded && (
+                      <div className="bg-slate-50/70 border-t border-slate-200 p-5 space-y-4">
+                        
+                        {/* Shipping Address */}
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1.5">
+                          <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4 text-emerald-700" />
+                            <span>آدرس مقصد ارسال به مزرعه / انبار:</span>
+                          </div>
+                          <p className="text-xs text-slate-700 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100 font-medium">
+                            {order.shipping_address || 'آدرس ثبت نشده است'}
+                          </p>
+                        </div>
+
+                        {/* Order Items List */}
+                        <div className="space-y-2">
+                          <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <Box className="w-4 h-4 text-indigo-700" />
+                            <span>ریز اقلام خریداری شده در این سفارش:</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {order.items?.map((item) => (
+                              <div
+                                key={item.id}
+                                className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3"
+                              >
+                                {item.product?.image_url ? (
+                                  <img
+                                    src={item.product.image_url}
+                                    alt={item.product.name}
+                                    className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
+                                    <Package className="w-6 h-6" />
+                                  </div>
+                                )}
+
+                                <div className="flex-1 min-w-0 space-y-0.5 text-xs">
+                                  <div className="font-bold text-slate-900 truncate">
+                                    {item.product?.name || `کالا #${item.product_id}`}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    تعداد: <span className="font-bold font-mono text-slate-800">{item.quantity}</span> عدد × {item.unit_price.toLocaleString('fa-IR')} ت
+                                  </div>
+                                  <div className="font-mono font-bold text-emerald-800 text-[11px]">
+                                    جمع ردیف: {(item.quantity * item.unit_price).toLocaleString('fa-IR')} ت
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -1192,9 +1723,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeTab === 'categories' && (
         <div id="admin-categories-view" className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-800">
-              دسته‌بندی‌های نهاده‌های کشاورزی در پایگاه داده
-            </h3>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                دسته‌بندی‌های نهاده‌های کشاورزی در پایگاه داده
+              </h3>
+              <p className="text-xs text-slate-500">
+                دسته‌بندی‌های رسمی کودها، سموم دفع آفات نباتی و بذور زراعی
+              </p>
+            </div>
+
             <button
               onClick={() => {
                 setEditingCategory(null);
@@ -1202,7 +1739,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 setCategoryDesc('');
                 setIsCategoryModalOpen(true);
               }}
-              className="px-4 py-2 bg-[#2D4F3E] hover:bg-[#243f32] text-white font-bold rounded-xl text-xs shadow transition-all flex items-center gap-2"
+              className="px-4 py-2 bg-[#2D4F3E] hover:bg-[#234032] text-white font-bold rounded-xl text-xs shadow transition-all flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               افزودن دسته‌بندی جدید
@@ -1225,23 +1762,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         setCategoryDesc(cat.description || '');
                         setIsCategoryModalOpen(true);
                       }}
-                      className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-lg"
+                      className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-lg transition-colors"
                       title="ویرایش"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDeleteCategory(cat)}
-                      className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg"
+                      className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
                       title="حذف"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
+
                 <p className="text-xs text-slate-600 leading-relaxed min-h-[40px]">
                   {cat.description || 'بدون توضیحات'}
                 </p>
+
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                   <span>محصولات متصل:</span>
                   <span className="font-bold font-mono">
@@ -1301,15 +1840,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* PRODUCT CREATE / EDIT MODAL */}
+      {/* QUICK STOCK ADJUSTMENT MODAL */}
+      {/* ========================================================================= */}
+      <AdminQuickStockModal
+        product={quickStockProduct}
+        isOpen={isQuickStockOpen}
+        token={token}
+        onClose={() => setIsQuickStockOpen(false)}
+        onSuccess={() => {
+          fetchAdminProducts();
+          fetchStats();
+          onRefreshCatalog();
+        }}
+        showToast={showToast}
+      />
+
+      {/* ========================================================================= */}
+      {/* OFFICIAL INVOICE PRINT MODAL */}
+      {/* ========================================================================= */}
+      <AdminInvoiceModal
+        order={selectedInvoiceOrder}
+        isOpen={isInvoiceModalOpen}
+        onClose={() => setIsInvoiceModalOpen(false)}
+      />
+
+      {/* ========================================================================= */}
+      {/* FULL PRODUCT CREATE / EDIT MODAL */}
       {/* ========================================================================= */}
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto" dir="rtl">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 my-8">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 my-8 border border-slate-200">
             <div className="flex justify-between items-center border-b border-slate-200 pb-3">
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Package className="w-5 h-5 text-[#2D4F3E]" />
-                {editingProduct ? `ویرایش محصول #${editingProduct.id}` : 'افزودن محصول جدید به کاتالوگ'}
+                {editingProduct ? `ویرایش نهاده #${editingProduct.id}` : 'افزودن نهاده کشاورزی جدید (کود، سم، بذر)'}
               </h3>
               <button
                 onClick={() => setIsProductModalOpen(false)}
@@ -1322,7 +1886,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <form onSubmit={handleSaveProduct} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">نام کامل محصول *</label>
+                  <label className="font-bold text-slate-700">نام کامل نهاده کشاورزی *</label>
                   <input
                     type="text"
                     required
@@ -1334,20 +1898,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">نوع محصول نهاده *</label>
+                  <label className="font-bold text-slate-700">نوع نهاده *</label>
                   <select
                     value={productFormData.product_type}
                     onChange={(e) => setProductFormData({ ...productFormData, product_type: e.target.value as ProductType })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#2D4F3E] outline-none font-bold text-emerald-900"
                   >
-                    <option value="کود">کود (شیمیایی، ارگانیک، ریزمغذی)</option>
-                    <option value="سم">سم (قارچ‌کش، حشره‌کش، علف‌کش)</option>
-                    <option value="بذر">بذر (هیبرید، زراعی، گلخانه‌ای)</option>
+                    <option value="کود">کود (شیمیایی، ارگانیک، ریزمغذی، هیومیک)</option>
+                    <option value="سم">سم (قارچ‌کش، حشره‌کش، علف‌کش، کنه‌کش)</option>
+                    <option value="بذر">بذر (هیبرید، زراعی، سبزی و صیفی، گلخانه‌ای)</option>
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">دسته‌بندی *</label>
+                  <label className="font-bold text-slate-700">دسته‌بندی در فروشگاه *</label>
                   <select
                     value={productFormData.category_id}
                     onChange={(e) => setProductFormData({ ...productFormData, category_id: e.target.value })}
@@ -1362,7 +1926,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">قیمت (تومان) *</label>
+                  <label className="font-bold text-slate-700">قیمت مصوب (تومان) *</label>
                   <input
                     type="number"
                     required
@@ -1375,7 +1939,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">موجودی اولیه انبار (عدد/بسته) *</label>
+                  <label className="font-bold text-slate-700">موجودی اولیه در انبار (عدد/بسته) *</label>
                   <input
                     type="number"
                     required
@@ -1388,7 +1952,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">شماره مجوز / پروانه ثبت ماده کودی یا سم</label>
+                  <label className="font-bold text-slate-700">شماره ثبت ماده کودی یا پروانه بهداشت گیاهی</label>
                   <input
                     type="text"
                     placeholder="مثال: سم-۹۸۴۱/ح-۱۴۰۱"
@@ -1399,10 +1963,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">برند / شرکت سازنده</label>
+                  <label className="font-bold text-slate-700">برند یا شرکت تولیدکننده</label>
                   <input
                     type="text"
-                    placeholder="مثال: بایر آلمان، سینجنتا، گرین‌پلاس"
+                    placeholder="مثال: سینجنتا، بایر آلمان، گرین‌پلاس"
                     value={productFormData.brand}
                     onChange={(e) => setProductFormData({ ...productFormData, brand: e.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#2D4F3E] outline-none"
@@ -1410,10 +1974,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-700">نوع بسته‌بندی</label>
+                  <label className="font-bold text-slate-700">اندازه بسته‌بندی</label>
                   <input
                     type="text"
-                    placeholder="مثال: کیسه ۱۰ کیلوگرمی، بطری ۱ لیتری"
+                    placeholder="مثال: کیسه ۱۰ کیلوگرمی، قوطی ۱ لیتری، پاکت ۵۰۰ گرمی"
                     value={productFormData.package_size}
                     onChange={(e) => setProductFormData({ ...productFormData, package_size: e.target.value })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#2D4F3E] outline-none"
@@ -1425,27 +1989,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <div className="font-bold text-slate-800 flex items-center gap-1.5">
                   <Upload className="w-4 h-4 text-indigo-600" />
-                  آپلود فایل‌های ضمیمه (Multer Multipart Upload)
+                  آپلود فایل‌های ضمیمه (Multipart Upload به پوشه uploads سرور)
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-slate-600 font-medium">تصویر محصول (حداکثر 5MB - فرمت JPG/PNG/WebP):</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Image Upload */}
+                  <div className="space-y-1.5">
+                    <label className="text-slate-700 font-medium">تصویر اصلی محصول (JPG, PNG, WebP):</label>
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => setProductImageFile(e.target.files?.[0] || null)}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setProductImageFile(file);
+                        if (file) {
+                          setProductImagePreview(URL.createObjectURL(file));
+                        }
+                      }}
                       className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
                     />
-                    {editingProduct?.image_url && !productImageFile && (
-                      <div className="text-[11px] text-slate-500 truncate">
-                        تصویر فعلی: {editingProduct.image_url}
+
+                    {productImagePreview && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <img
+                          src={productImagePreview}
+                          alt="پیش‌نمایش"
+                          className="w-12 h-12 object-cover rounded-lg border border-slate-300"
+                        />
+                        <span className="text-[11px] text-slate-500">پیش‌نمایش تصویر انتخابی</span>
                       </div>
                     )}
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-slate-600 font-medium">برگه اطلاعات ایمنی MSDS (حداکثر 10MB - فرمت PDF):</label>
+                  {/* MSDS Upload */}
+                  <div className="space-y-1.5">
+                    <label className="text-slate-700 font-medium">برگه اطلاعات ایمنی مواد شیمیایی MSDS (PDF):</label>
                     <input
                       type="file"
                       accept="application/pdf"
@@ -1454,7 +2032,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     />
                     {editingProduct?.msds_file_url && !productMsdsFile && (
                       <div className="text-[11px] text-slate-500 truncate">
-                        فایل MSDS فعلی: {editingProduct.msds_file_url}
+                        فایل MSDS موجود: {editingProduct.msds_file_url}
                       </div>
                     )}
                   </div>
@@ -1462,10 +2040,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-700">توضیحات و دستورالعمل مصرف گیاه‌پزشکی</label>
+                <label className="font-bold text-slate-700">توضیحات و دستورالعمل فنی مصرف گیاه‌پزشکی</label>
                 <textarea
                   rows={3}
-                  placeholder="نحوه اختلاط، دوز مصرف در هکتار، دوره کارنس و احتیاطات..."
+                  placeholder="نحوه اختلاط، دوز مصرف در هکتار، دوره کارنس و نکات ایمنی کشاورزی..."
                   value={productFormData.description}
                   onChange={(e) => setProductFormData({ ...productFormData, description: e.target.value })}
                   className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#2D4F3E] outline-none"
@@ -1483,7 +2061,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   type="submit"
                   disabled={savingProduct}
-                  className="px-6 py-2.5 bg-[#2D4F3E] hover:bg-[#243f32] text-white rounded-xl font-bold shadow-md transition-all flex items-center gap-2"
+                  className="px-6 py-2.5 bg-[#2D4F3E] hover:bg-[#234032] text-white rounded-xl font-bold shadow-md transition-all flex items-center gap-2"
                 >
                   {savingProduct ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                   {editingProduct ? 'ذخیره تغییرات در MySQL' : 'ثبت قطعی در دیتابیس'}
@@ -1494,10 +2072,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
+      {/* ========================================================================= */}
       {/* CATEGORY CREATE / EDIT MODAL */}
+      {/* ========================================================================= */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" dir="rtl">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200">
             <div className="flex justify-between items-center border-b border-slate-200 pb-3">
               <h3 className="text-base font-bold text-slate-900">
                 {editingCategory ? 'ویرایش دسته‌بندی' : 'افزودن دسته‌بندی جدید'}
@@ -1545,7 +2125,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   type="submit"
                   disabled={savingCategory}
-                  className="px-5 py-2 bg-[#2D4F3E] hover:bg-[#243f32] text-white rounded-xl font-bold flex items-center gap-1.5 shadow"
+                  className="px-5 py-2 bg-[#2D4F3E] hover:bg-[#234032] text-white rounded-xl font-bold flex items-center gap-1.5 shadow"
                 >
                   {savingCategory && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   ذخیره دسته‌بندی

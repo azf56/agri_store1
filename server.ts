@@ -25,6 +25,9 @@ const isProduction = process.env.NODE_ENV === 'production';
 async function startServer() {
   const app = express();
 
+  // Trust proxy for Cloud Run, Nginx, cPanel reverse proxy environments
+  app.set('trust proxy', 1);
+
   // Permissive and flexible CORS Configuration for Preview environment & cPanel/Android (shop.avinia.ir, api.shop.avinia.ir)
   app.use(
     cors({

@@ -4,10 +4,83 @@ import { Cart, Product, Category } from '../models/index.js';
 import { toAbsoluteImageUrl } from '../utils/urlHelper.js';
 
 /**
+ * Helper function to retrieve and calculate the full user cart directly from MySQL database.
+ */
+export async function getFullCartData(userId: number, req: AuthenticatedRequest) {
+  const cartItems = await Cart.findAll({
+    where: { user_id: userId },
+    include: [
+      {
+        model: Product,
+        as: 'product',
+        include: [
+          {
+            model: Category,
+            as: 'category',
+            attributes: ['id', 'name'],
+          },
+        ],
+      },
+    ],
+    order: [['created_at', 'DESC']],
+  });
+
+  let totalPrice = 0;
+  let totalQuantity = 0;
+
+  const formattedItems = cartItems.map((item) => {
+    const product = item.product;
+    const unitPrice = product ? Number(product.price) : 0;
+    const quantity = item.quantity;
+    const lineTotal = unitPrice * quantity;
+
+    totalPrice += lineTotal;
+    totalQuantity += quantity;
+
+    return {
+      id: item.id,
+      user_id: item.user_id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: unitPrice,
+      line_total: lineTotal,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+      product: product
+        ? {
+            id: product.id,
+            name: product.name,
+            price: Number(product.price),
+            stock: product.stock,
+            category_id: product.category_id,
+            category_name: product.category?.name || 'عمومی',
+            product_type: product.product_type,
+            brand: product.brand,
+            package_size: product.package_size,
+            required_permit_number: product.required_permit_number,
+            image_url: toAbsoluteImageUrl(req, product.image_url),
+            in_stock: product.stock >= item.quantity,
+          }
+        : null,
+    };
+  });
+
+  return {
+    items: formattedItems,
+    summary: {
+      total_items: formattedItems.length,
+      total_quantity: totalQuantity,
+      total_price: totalPrice,
+      currency: 'تومان',
+      total_price_formatted: `${totalPrice.toLocaleString('fa-IR')} تومان`,
+    },
+  };
+}
+
+/**
  * 1. GET /api/v1/cart
  * Fetches the authenticated user's cart from the database Cart table,
  * joined with Product and Category details.
- * Computes unit prices, line totals, and grand total.
  */
 export const getCart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -20,77 +93,11 @@ export const getCart = async (req: AuthenticatedRequest, res: Response): Promise
       return;
     }
 
-    // Query Database Cart table directly
-    const cartItems = await Cart.findAll({
-      where: { user_id: userId },
-      include: [
-        {
-          model: Product,
-          as: 'product',
-          include: [
-            {
-              model: Category,
-              as: 'category',
-              attributes: ['id', 'name'],
-            },
-          ],
-        },
-      ],
-      order: [['created_at', 'DESC']],
-    });
-
-    let totalPrice = 0;
-    let totalQuantity = 0;
-
-    const formattedItems = cartItems.map((item) => {
-      const product = item.product;
-      const unitPrice = product ? Number(product.price) : 0;
-      const quantity = item.quantity;
-      const lineTotal = unitPrice * quantity;
-
-      totalPrice += lineTotal;
-      totalQuantity += quantity;
-
-      return {
-        id: item.id,
-        user_id: item.user_id,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price: unitPrice,
-        line_total: lineTotal,
-        created_at: item.created_at,
-        updated_at: item.updated_at,
-        product: product
-          ? {
-              id: product.id,
-              name: product.name,
-              price: Number(product.price),
-              stock: product.stock,
-              category_id: product.category_id,
-              category_name: product.category?.name || 'عمومی',
-              product_type: product.product_type,
-              brand: product.brand,
-              package_size: product.package_size,
-              required_permit_number: product.required_permit_number,
-              image_url: toAbsoluteImageUrl(req, product.image_url),
-              in_stock: product.stock >= item.quantity,
-            }
-          : null,
-      };
-    });
+    const cartData = await getFullCartData(userId, req);
 
     res.status(200).json({
       success: true,
-      data: {
-        items: formattedItems,
-        summary: {
-          total_items: formattedItems.length,
-          total_quantity: totalQuantity,
-          total_price: totalPrice,
-          currency: 'تومان',
-          total_price_formatted: `${totalPrice.toLocaleString('fa-IR')} تومان`,
-        },
-      },
+      data: cartData,
     });
   } catch (error: any) {
     console.error('❌ [CartController] Error fetching cart:', error);
@@ -105,7 +112,7 @@ export const getCart = async (req: AuthenticatedRequest, res: Response): Promise
 /**
  * 2. POST /api/v1/cart
  * Adds a product to user's cart in the MySQL database.
- * If product already exists in user's cart, updates quantity; otherwise inserts a new record.
+ * Returns the updated complete cart data structure.
  */
 export const addToCart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -138,12 +145,12 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
       return;
     }
 
-    // Check product existence and live stock in MySQL database
+    // Verify product exists in database and has sufficient stock
     const product = await Product.findByPk(productId);
     if (!product) {
       res.status(404).json({
         success: false,
-        message: 'محصول مورد نظر در پایگاه داده یافت نشد',
+        message: 'محصول مورد نظر در انبار پایگاه داده یافت نشد',
       });
       return;
     }
@@ -172,8 +179,6 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
       },
     });
 
-    let cartRecord: Cart;
-
     if (existingCartItem) {
       const newTotalQuantity = existingCartItem.quantity + quantity;
 
@@ -186,27 +191,20 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
       }
 
       await existingCartItem.update({ quantity: newTotalQuantity });
-      cartRecord = existingCartItem;
     } else {
-      cartRecord = await Cart.create({
+      await Cart.create({
         user_id: userId,
         product_id: productId,
         quantity: quantity,
       });
     }
 
+    const fullCart = await getFullCartData(userId, req);
+
     res.status(201).json({
       success: true,
       message: `محصول «${product.name}» با موفقیت در سبد خرید دیتابیس ثبت شد`,
-      data: {
-        id: cartRecord.id,
-        user_id: cartRecord.user_id,
-        product_id: cartRecord.product_id,
-        quantity: cartRecord.quantity,
-        product_name: product.name,
-        price: Number(product.price),
-        image_url: toAbsoluteImageUrl(req, product.image_url),
-      },
+      data: fullCart,
     });
   } catch (error: any) {
     console.error('❌ [CartController] Error adding to cart:', error);
@@ -221,6 +219,7 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
 /**
  * 3. PUT /api/v1/cart/:itemId
  * Updates the quantity of a specific cart item in the database.
+ * Returns the updated complete cart data structure.
  */
 export const updateCartItem = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -285,17 +284,12 @@ export const updateCartItem = async (req: AuthenticatedRequest, res: Response): 
 
     await cartItem.update({ quantity });
 
+    const fullCart = await getFullCartData(userId, req);
+
     res.status(200).json({
       success: true,
       message: 'تعداد محصول در سبد خرید با موفقیت به‌روزرسانی شد',
-      data: {
-        id: cartItem.id,
-        user_id: cartItem.user_id,
-        product_id: cartItem.product_id,
-        quantity: cartItem.quantity,
-        unit_price: Number(product.price),
-        line_total: Number(product.price) * quantity,
-      },
+      data: fullCart,
     });
   } catch (error: any) {
     console.error('❌ [CartController] Error updating cart item:', error);
@@ -310,6 +304,7 @@ export const updateCartItem = async (req: AuthenticatedRequest, res: Response): 
 /**
  * 4. DELETE /api/v1/cart/:itemId
  * Removes an item from the user's cart in the database.
+ * Returns the updated complete cart data structure.
  */
 export const removeFromCart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -347,10 +342,12 @@ export const removeFromCart = async (req: AuthenticatedRequest, res: Response): 
       return;
     }
 
+    const fullCart = await getFullCartData(userId, req);
+
     res.status(200).json({
       success: true,
       message: 'محصول با موفقیت از سبد خرید حذف شد',
-      data: { deleted_id: itemId },
+      data: fullCart,
     });
   } catch (error: any) {
     console.error('❌ [CartController] Error removing item from cart:', error);
@@ -365,6 +362,7 @@ export const removeFromCart = async (req: AuthenticatedRequest, res: Response): 
 /**
  * 5. DELETE /api/v1/cart
  * Clears all items in the user's cart in the database.
+ * Returns the updated empty cart data structure.
  */
 export const clearCart = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -381,9 +379,12 @@ export const clearCart = async (req: AuthenticatedRequest, res: Response): Promi
       where: { user_id: userId },
     });
 
+    const fullCart = await getFullCartData(userId, req);
+
     res.status(200).json({
       success: true,
       message: `سبد خرید شما تخلیه شد (${count} آیتم حذف گردید)`,
+      data: fullCart,
     });
   } catch (error: any) {
     console.error('❌ [CartController] Error clearing cart:', error);
