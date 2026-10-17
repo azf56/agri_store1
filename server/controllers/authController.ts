@@ -3,9 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import { User, UserAttributes } from '../models/index.js';
 import { AuthenticatedRequest } from '../middleware/auth.js';
-
-const JWT_SECRET: Secret = process.env.JWT_SECRET || 'super_secret_jwt_key_for_agri_store_2026_change_in_production';
-const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
+import { JWT_SECRET, JWT_EXPIRES_IN, devError } from '../config/env.js';
 
 /**
  * 1. Register a new user in the MySQL database
@@ -49,7 +47,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         role: newUser.role,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN || '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     res.status(201).json({
@@ -71,7 +69,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: 'خطای سرور در ثبت‌نام کاربر در دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -116,7 +114,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         role: user.role,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN || '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     res.status(200).json({
@@ -138,7 +136,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: 'خطای سرور در بررسی اطلاعات ورود',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -180,7 +178,7 @@ export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<v
     res.status(500).json({
       success: false,
       message: 'خطای سرور در دریافت اطلاعات کاربر',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -231,7 +229,7 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     res.status(500).json({
       success: false,
       message: 'خطای سرور در ویرایش پروفایل',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -256,7 +254,7 @@ export const listUsers = async (_req: Request, res: Response): Promise<void> => 
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت لیست کاربران',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

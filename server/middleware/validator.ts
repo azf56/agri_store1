@@ -60,9 +60,9 @@ export const createProductSchema = Joi.object({
     'any.required': 'نام محصول الزامی است',
   }),
   description: Joi.string().trim().allow('', null).optional(),
-  price: Joi.number().positive().min(0).required().messages({
+  price: Joi.number().positive().required().messages({
     'number.base': 'قیمت محصول باید عدد معتبر باشد',
-    'number.min': 'قیمت محصول نمی‌تواند منفی باشد',
+    'number.positive': 'قیمت محصول باید بزرگتر از صفر باشد',
     'any.required': 'قیمت محصول به تومان الزامی است',
   }),
   stock: Joi.number().integer().min(0).default(0).messages({
@@ -86,7 +86,10 @@ export const createProductSchema = Joi.object({
 export const updateProductSchema = Joi.object({
   name: Joi.string().trim().min(2).max(255).optional(),
   description: Joi.string().trim().allow('', null).optional(),
-  price: Joi.number().positive().min(0).optional(),
+  price: Joi.number().positive().optional().messages({
+    'number.base': 'قیمت محصول باید عدد معتبر باشد',
+    'number.positive': 'قیمت محصول باید بزرگتر از صفر باشد',
+  }),
   stock: Joi.number().integer().min(0).optional(),
   category_id: Joi.number().integer().positive().optional(),
   image_url: Joi.string().trim().allow('', null).optional(),

@@ -3,12 +3,15 @@ import { sequelize, testConnection } from '../config/database.js';
 import { Category, Product, User, Order, Cart } from '../models/index.js';
 import { seedDatabase } from '../scripts/seed.js';
 import { syncDatabase } from '../scripts/syncDb.js';
+import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import { devError } from '../config/env.js';
 
 const router = Router();
 
 /**
  * GET /api/system/status
  * Returns database connection status, dialect, table counts, and environment specs.
+ * Notice: host and database_name are redacted for security.
  */
 router.get('/status', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -33,9 +36,7 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
       database: {
         connected: conn.success,
         dialect: conn.dialect,
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 3306,
-        database_name: process.env.DB_NAME || 'agri_store_db',
+        status: conn.success ? 'operational' : 'disconnected',
         connection_pool: {
           max: 10,
           min: 0,
@@ -51,7 +52,6 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
       },
       environment: {
         node_env: process.env.NODE_ENV || 'development',
-        port: process.env.PORT || 3000,
         cpanel_compatible: true,
       },
     });
@@ -59,7 +59,7 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت وضعیت پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 });
@@ -67,10 +67,11 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
 /**
  * POST /api/system/sync
  * Manually runs Sequelize sync on database tables.
+ * Protected: Requires authenticateToken + requireAdmin
  */
-router.post('/sync', async (req: Request, res: Response): Promise<void> => {
+router.post('/sync', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
-    await syncDatabase({ alter: true });
+    await syncDatabase({ alter: process.env.NODE_ENV !== 'production' });
     res.json({
       success: true,
       message: 'جداول دیتابیس با موفقیت با مدل‌های Sequelize همگام‌سازی (Sync) شدند.',
@@ -79,7 +80,7 @@ router.post('/sync', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: 'خطا در همگام‌سازی جداول دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 });
@@ -87,8 +88,9 @@ router.post('/sync', async (req: Request, res: Response): Promise<void> => {
 /**
  * POST /api/system/seed
  * Populates database with sample agricultural products, categories and test accounts.
+ * Protected: Requires authenticateToken + requireAdmin
  */
-router.post('/seed', async (req: Request, res: Response): Promise<void> => {
+router.post('/seed', authenticateToken, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const stats = await seedDatabase();
     res.json({
@@ -100,7 +102,7 @@ router.post('/seed', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: 'خطا در درج داده‌های نمونه در دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 });

@@ -1,10 +1,24 @@
 import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { Product, Category, ProductType } from '../models/index.js';
 import { Op } from 'sequelize';
+import { JWT_SECRET, devError } from '../config/env.js';
 
 /**
  * Controller for Products (Agricultural Inputs: Fertilizer, Pesticide, Seed)
  */
+
+function isRequestAdmin(req: Request): boolean {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    return decoded && decoded.role === 'admin';
+  } catch {
+    return false;
+  }
+}
 
 export const getAllProducts = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,6 +31,8 @@ export const getAllProducts = async (req: Request, res: Response): Promise<void>
       in_stock,
       brand,
       sort,
+      include_inactive,
+      is_active,
       page = '1',
       limit = '12',
     } = req.query;
@@ -27,6 +43,19 @@ export const getAllProducts = async (req: Request, res: Response): Promise<void>
 
     // Build Sequelize where conditions
     const whereConditions: any = {};
+
+    // Inactive Products Filter:
+    // Only administrators can include inactive products via include_inactive=true.
+    // For all public or customer requests, strictly enforce is_active = true.
+    const isAdmin = isRequestAdmin(req);
+    if (isAdmin && include_inactive === 'true') {
+      if (is_active !== undefined) {
+        whereConditions.is_active = is_active === 'true';
+      }
+      // If include_inactive === 'true' and no specific is_active filter, return all (active + inactive)
+    } else {
+      whereConditions.is_active = true;
+    }
 
     if (category_id) {
       whereConditions.category_id = Number(category_id);
@@ -106,7 +135,7 @@ export const getAllProducts = async (req: Request, res: Response): Promise<void>
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت لیست محصولات از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -132,6 +161,15 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // If product is inactive, only allow authenticated admin to view it
+    if (!product.is_active && !isRequestAdmin(req)) {
+      res.status(404).json({
+        success: false,
+        message: `محصولی با شناسه ${id} یافت نشد یا در حال حاضر غیرفعال است`,
+      });
+      return;
+    }
+
     res.json({
       success: true,
       data: product,
@@ -141,7 +179,7 @@ export const getProductById = async (req: Request, res: Response): Promise<void>
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت اطلاعات محصول از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

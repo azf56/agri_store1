@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
 import { adminProductUpload } from '../middleware/upload.js';
+import { uploadRateLimiter } from '../middleware/rateLimiter.js';
 import {
   getDashboardStats,
   adminCreateProduct,
@@ -26,10 +27,11 @@ router.use(requireAdmin);
 // 1. Dashboard Statistics
 router.get('/dashboard/stats', getDashboardStats);
 
-// 2. Product Management
-router.post('/products', adminProductUpload, adminCreateProduct);
-router.put('/products/:id', adminProductUpload, adminUpdateProduct);
+// 2. Product Management (rate-limited uploads)
+router.post('/products', uploadRateLimiter, adminProductUpload, adminCreateProduct);
+router.put('/products/:id', uploadRateLimiter, adminProductUpload, adminUpdateProduct);
 router.delete('/products/:id', adminDeleteProduct);
+
 
 // 3. Category Management
 router.post('/categories', adminCreateCategory);

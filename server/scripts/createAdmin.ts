@@ -23,30 +23,34 @@ export async function createAdminUser(options?: {
 
   // Parse command line arguments if not provided in options
   const args = process.argv.slice(2);
-  let phone = options?.phone || process.env.ADMIN_PHONE || '09121234567';
-  let password = options?.password || process.env.ADMIN_PASSWORD || 'admin123456';
+  let phone = options?.phone || process.env.ADMIN_PHONE || '';
+  let password = options?.password || process.env.ADMIN_PASSWORD || '';
   let name = options?.name || process.env.ADMIN_NAME || 'مدیر ارشد سامانه نهاده‌های کشاورزی';
-  let location = options?.location || 'دفتر مرکزی تهران / استان البرز';
+  let location = options?.location || process.env.ADMIN_LOCATION || 'دفتر مرکزی تهران / استان البرز';
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--phone' && args[i + 1]) {
+    if ((args[i] === '--phone' || args[i] === '-p') && args[i + 1]) {
       phone = args[i + 1];
       i++;
-    } else if (args[i] === '--password' && args[i + 1]) {
+    } else if ((args[i] === '--password' || args[i] === '-pwd') && args[i + 1]) {
       password = args[i + 1];
       i++;
-    } else if (args[i] === '--name' && args[i + 1]) {
+    } else if ((args[i] === '--name' || args[i] === '-n') && args[i + 1]) {
       name = args[i + 1];
       i++;
-    } else if (args[i] === '--location' && args[i + 1]) {
+    } else if ((args[i] === '--location' || args[i] === '-l') && args[i + 1]) {
       location = args[i + 1];
       i++;
     }
   }
 
-  if (!phone || !password || !name) {
-    console.error('❌ Error: Missing required admin parameters (phone, password, name).');
-    throw new Error('Missing required admin parameters');
+  if (!phone || !password) {
+    console.error('\n❌ [Security Error] Phone number and password are required to create an administrator.');
+    console.error('❌ Usage with CLI arguments:');
+    console.error('   node create-admin.js --phone 0912XXXXXXX --password YOUR_SECURE_PASSWORD --name "نام مدیر"');
+    console.error('❌ Or via environment variables:');
+    console.error('   ADMIN_PHONE=0912XXXXXXX ADMIN_PASSWORD=YOUR_PASSWORD node create-admin.js\n');
+    throw new Error('Missing required admin parameters: --phone and --password must be explicitly provided.');
   }
 
   await testConnection();

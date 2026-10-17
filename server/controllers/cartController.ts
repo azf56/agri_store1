@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth.js';
 import { Cart, Product, Category } from '../models/index.js';
 import { toAbsoluteImageUrl } from '../utils/urlHelper.js';
+import { devError } from '../config/env.js';
+
 
 /**
  * Helper function to retrieve and calculate the full user cart directly from MySQL database.
@@ -104,7 +106,7 @@ export const getCart = async (req: AuthenticatedRequest, res: Response): Promise
     res.status(500).json({
       success: false,
       message: 'خطا در واکشی اطلاعات سبد خرید از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -145,12 +147,20 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
       return;
     }
 
-    // Verify product exists in database and has sufficient stock
+    // Verify product exists in database, is active, and has sufficient stock
     const product = await Product.findByPk(productId);
     if (!product) {
       res.status(404).json({
         success: false,
         message: 'محصول مورد نظر در انبار پایگاه داده یافت نشد',
+      });
+      return;
+    }
+
+    if (!product.is_active) {
+      res.status(400).json({
+        success: false,
+        message: `محصول «${product.name}» در حال حاضر غیرفعال است و امکان افزودن آن به سبد خرید وجود ندارد`,
       });
       return;
     }
@@ -211,7 +221,7 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
     res.status(500).json({
       success: false,
       message: 'خطا در ثبت محصول در سبد خرید پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -274,6 +284,14 @@ export const updateCartItem = async (req: AuthenticatedRequest, res: Response): 
       return;
     }
 
+    if (!product.is_active) {
+      res.status(400).json({
+        success: false,
+        message: `محصول «${product.name}» غیرفعال شده است و امکان ویرایش آن در سبد خرید وجود ندارد`,
+      });
+      return;
+    }
+
     if (quantity > product.stock) {
       res.status(400).json({
         success: false,
@@ -296,7 +314,7 @@ export const updateCartItem = async (req: AuthenticatedRequest, res: Response): 
     res.status(500).json({
       success: false,
       message: 'خطا در به‌روزرسانی سبد خرید',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -354,7 +372,7 @@ export const removeFromCart = async (req: AuthenticatedRequest, res: Response): 
     res.status(500).json({
       success: false,
       message: 'خطا در حذف آیتم از سبد خرید',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -391,7 +409,7 @@ export const clearCart = async (req: AuthenticatedRequest, res: Response): Promi
     res.status(500).json({
       success: false,
       message: 'خطا در پاکسازی سبد خرید',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

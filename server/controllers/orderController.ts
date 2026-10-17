@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth.js';
 import { sequelize, Order, OrderItem, Cart, Product, Category, User } from '../models/index.js';
 import { toAbsoluteImageUrl } from '../utils/urlHelper.js';
+import { devError } from '../config/env.js';
+
 
 /**
  * Helper to generate an official Iranian tracking code
@@ -39,10 +41,11 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
   const transaction = await sequelize.transaction();
 
   try {
-    // 1. Fetch user's cart from database inside the transaction
+    // 1. Fetch user's cart from database inside the transaction with ROW LOCK (prevents concurrent double-order creation)
     const cartItems = await Cart.findAll({
       where: { user_id: userId },
       transaction,
+      lock: transaction.LOCK.UPDATE,
     });
 
     if (!cartItems || cartItems.length === 0) {
@@ -60,13 +63,14 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
       quantity: number;
       unit_price: number;
       product_name: string;
+      productInstance: Product;
     }> = [];
 
-    // 2. Validate every cart item against current product stock and price in DB
+    // 2. Validate every cart item against active status, stock and price in DB with row lock
     for (const cartItem of cartItems) {
       const product = await Product.findByPk(cartItem.product_id, {
         transaction,
-        lock: true, // Lock row for update during transaction to prevent race conditions
+        lock: transaction.LOCK.UPDATE, // Lock product row for update during transaction to prevent race conditions
       });
 
       if (!product) {
@@ -74,6 +78,16 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
         res.status(400).json({
           success: false,
           message: `کالای با شناسه ${cartItem.product_id} در پایگاه داده موجود نیست یا حذف گردیده است`,
+        });
+        return;
+      }
+
+      // Check if product is active
+      if (!product.is_active) {
+        await transaction.rollback();
+        res.status(400).json({
+          success: false,
+          message: `ثبت سفارش ناموفق بود: کالای «${product.name}» در حال حاضر غیرفعال است و امکان خرید آن وجود ندارد`,
         });
         return;
       }
@@ -98,23 +112,52 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
         quantity: cartItem.quantity,
         unit_price: realUnitPrice,
         product_name: product.name,
+        productInstance: product,
       });
     }
 
-    // 3. Create the master Order record in DB
-    const trackingCode = generateTrackingCode();
-    const newOrder = await Order.create(
-      {
-        user_id: userId,
-        total_price: calculatedGrandTotal,
-        status: 'pending',
-        shipping_address: shippingAddress,
-        tracking_code: trackingCode,
-      },
-      { transaction }
-    );
+    // 3. Create the master Order record in DB with retry on unique tracking_code collision
+    let newOrder: Order | null = null;
+    let attempts = 0;
+    const maxAttempts = 5;
 
-    // 4. Create OrderItem records and decrement product stock in DB
+    while (!newOrder && attempts < maxAttempts) {
+      attempts++;
+      const trackingCode = generateTrackingCode();
+      try {
+        newOrder = await Order.create(
+          {
+            user_id: userId,
+            total_price: calculatedGrandTotal,
+            status: 'pending',
+            shipping_address: shippingAddress,
+            tracking_code: trackingCode,
+          },
+          { transaction }
+        );
+      } catch (err: any) {
+        const isConstraintError =
+          err.name === 'SequelizeUniqueConstraintError' ||
+          err.parent?.code === 'ER_DUP_ENTRY' ||
+          err.message?.includes('tracking_code');
+        if (attempts < maxAttempts && isConstraintError) {
+          console.warn(`[Order] Duplicate tracking_code collision (${trackingCode}), retrying attempt ${attempts + 1}...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!newOrder) {
+      await transaction.rollback();
+      res.status(500).json({
+        success: false,
+        message: 'خطا در ایجاد کد رهگیری منحصر‌به‌فرد سفارش در پایگاه داده',
+      });
+      return;
+    }
+
+    // 4. Create OrderItem records and execute atomic decrement on product stock
     for (const item of itemsToCreate) {
       // Create OrderItem
       await OrderItem.create(
@@ -127,12 +170,11 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
         { transaction }
       );
 
-      // Decrement product stock in Product table
-      const prod = await Product.findByPk(item.product_id, { transaction });
-      if (prod) {
-        const updatedStock = Math.max(0, prod.stock - item.quantity);
-        await prod.update({ stock: updatedStock }, { transaction });
-      }
+      // Atomic decrement of product stock in Product table
+      await item.productInstance.decrement('stock', {
+        by: item.quantity,
+        transaction,
+      });
     }
 
     // 5. Clear all items from the user's DB Cart
@@ -144,7 +186,7 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
     // 6. Commit transaction atomically
     await transaction.commit();
 
-    console.log(`✅ [Order] Successfully placed order #${newOrder.id} (${trackingCode}) for user #${userId}`);
+    console.log(`✅ [Order] Successfully placed order #${newOrder.id} (${newOrder.tracking_code}) for user #${userId}`);
 
     // Fetch full order data to return in response
     const createdOrderWithDetails = await Order.findByPk(newOrder.id, {
@@ -180,7 +222,7 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
 
     res.status(201).json({
       success: true,
-      message: `سفارش شما با کد پیگیری ${trackingCode} با موفقیت در سیستم ثبت گردید`,
+      message: `سفارش شما با کد پیگیری ${newOrder.tracking_code} با موفقیت در سیستم ثبت گردید`,
       data: formattedOrder || newOrder,
     });
   } catch (error: any) {
@@ -192,7 +234,7 @@ export const createOrder = async (req: AuthenticatedRequest, res: Response): Pro
     res.status(500).json({
       success: false,
       message: 'خطای سیستمی در ثبت تراکنش سفارش در پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -212,7 +254,13 @@ export const getOrders = async (req: AuthenticatedRequest, res: Response): Promi
       return;
     }
 
-    const isUserAdmin = req.user?.role === 'admin';
+    // Explicitly verify admin role from MySQL database if ?all=true is requested
+    let isUserAdmin = false;
+    if (req.query.all === 'true') {
+      const dbUser = await User.findByPk(userId);
+      isUserAdmin = dbUser?.role === 'admin';
+    }
+
     const whereClause = isUserAdmin && req.query.all === 'true' ? {} : { user_id: userId };
 
     const orders = await Order.findAll({
@@ -259,7 +307,7 @@ export const getOrders = async (req: AuthenticatedRequest, res: Response): Promi
     res.status(500).json({
       success: false,
       message: 'خطا در واکشی فهرست سفارش‌ها از دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -345,7 +393,7 @@ export const getOrderById = async (req: AuthenticatedRequest, res: Response): Pr
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت جزئیات سفارش',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

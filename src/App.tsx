@@ -284,11 +284,7 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        if (data.data && Array.isArray(data.data.items)) {
-          setCart(data.data);
-        } else {
-          await fetchCart(authToken);
-        }
+        await fetchCart(authToken);
         showToast('success', 'محصول با موفقیت به سبد خرید افزوده شد.', 'سبد خرید');
         fetchSystemStatus();
       } else if (res.status === 401) {
@@ -318,11 +314,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      if (data.data && Array.isArray(data.data.items)) {
-        setCart(data.data);
-      } else {
-        await fetchCart(authToken);
-      }
+      await fetchCart(authToken);
     } else if (res.status === 401) {
       localStorage.removeItem('agri_jwt_token');
       setAuthToken(null);
@@ -345,11 +337,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      if (data.data && Array.isArray(data.data.items)) {
-        setCart(data.data);
-      } else {
-        await fetchCart(authToken);
-      }
+      await fetchCart(authToken);
       showToast('info', 'آیتم از سبد خرید حذف شد.');
       fetchSystemStatus();
     } else if (res.status === 401) {
@@ -373,11 +361,7 @@ export default function App() {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      if (data.data && Array.isArray(data.data.items)) {
-        setCart(data.data);
-      } else {
-        await fetchCart(authToken);
-      }
+      await fetchCart(authToken);
       showToast('info', 'سبد خرید در پایگاه داده به طور کامل تخلیه شد.');
       fetchSystemStatus();
     } else if (res.status === 401) {
@@ -492,6 +476,8 @@ export default function App() {
           status={systemStatus}
           onRefresh={handleRefreshAll}
           onSeedSuccess={handleRefreshAll}
+          currentUser={currentUser}
+          token={authToken}
         />
 
         {/* Dynamic Tab Views */}
@@ -563,6 +549,7 @@ export default function App() {
             loading={loadingCategories}
             onRefresh={handleRefreshAll}
             token={authToken}
+            currentUser={currentUser}
           />
         )}
 

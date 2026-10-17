@@ -201,9 +201,8 @@ PassengerNodejs "/home/cpaneluser/nodevenv/agri_backend/20/bin/node"
             <div className="text-[#8BA888] mt-1.5"># ۲. بیلد فرانت‌اند و بک‌اند:</div>
             <div className="text-[#A2D9A1]">npm run build</div>
             <div className="text-[#8BA888] mt-1.5"># ۳. ساخت جداول در MySQL:</div>
-            <div className="text-[#A2D9A1]">npm run db:sync</div>
-            <div className="text-[#8BA888] mt-1.5"># ۴. ایجاد کاربر مدیر اولیه:</div>
-            <div className="text-[#A2D9A1]">node create-admin.js --phone 09121234567 --password admin123456</div>
+            <div className="text-[#8BA888] mt-1.5"># ۴. ایجاد کاربر مدیر اولیه (با پسورد اختصاصی):</div>
+            <div className="text-[#A2D9A1]">node create-admin.js --phone 0912XXXXXXX --password YOUR_SECURE_PASSWORD --name "مدیر ارشد"</div>
           </div>
         </div>
 

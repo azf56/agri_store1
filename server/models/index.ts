@@ -328,6 +328,7 @@ Order.init(
     tracking_code: {
       type: DataTypes.STRING(100),
       allowNull: true,
+      unique: true,
     },
   },
   {
@@ -335,6 +336,12 @@ Order.init(
     tableName: 'orders',
     timestamps: true,
     underscored: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ['tracking_code'],
+      },
+    ],
   }
 );
 

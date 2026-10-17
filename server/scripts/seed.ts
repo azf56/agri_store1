@@ -6,7 +6,7 @@ export async function seedDatabase(): Promise<{ categoriesCount: number; product
   console.log('🌱 [DB Seed] Starting database seeding with realistic agricultural data...');
   
   await testConnection();
-  await sequelize.sync({ alter: true });
+  await sequelize.sync({ alter: process.env.NODE_ENV !== 'production' });
 
   // 1. Seed Categories
   const categoriesData = [
@@ -211,33 +211,40 @@ export async function seedDatabase(): Promise<{ categoriesCount: number; product
 
   console.log(`✅ Seeded ${insertedCount} new products (Total catalog size: ${productsData.length}).`);
 
-  // 3. Seed Default Admin User
-  const adminPasswordHash = await bcrypt.hash('admin123456', 10);
-  await User.findOrCreate({
-    where: { phone_number: '09121234567' },
-    defaults: {
-      phone_number: '09121234567',
-      password_hash: adminPasswordHash,
-      full_name: 'مدیر ارشد سامانه نهاده‌های کشاورزی',
-      farm_location: 'دفتر مرکزی تهران / استان البرز',
-      role: 'admin',
-    },
-  });
+  // 3. Seed Default Admin & Customer Users (DEVELOPMENT / STAGING ONLY)
+  if (process.env.NODE_ENV !== 'production') {
+    const adminPasswordHash = await bcrypt.hash('admin123456', 10);
+    await User.findOrCreate({
+      where: { phone_number: '09121234567' },
+      defaults: {
+        phone_number: '09121234567',
+        password_hash: adminPasswordHash,
+        full_name: 'مدیر ارشد سامانه نهاده‌های کشاورزی',
+        farm_location: 'دفتر مرکزی تهران / استان البرز',
+        role: 'admin',
+      },
+    });
 
-  // Seed Default Customer User
-  const customerPasswordHash = await bcrypt.hash('farmer123456', 10);
-  await User.findOrCreate({
-    where: { phone_number: '09359876543' },
-    defaults: {
-      phone_number: '09359876543',
-      password_hash: customerPasswordHash,
-      full_name: 'مهندس احمد کریمی (کشاورز نمونه پسته)',
-      farm_location: 'استان کرمان، رفسنجان',
-      role: 'customer',
-    },
-  });
+    // Seed Default Customer User
+    const customerPasswordHash = await bcrypt.hash('farmer123456', 10);
+    await User.findOrCreate({
+      where: { phone_number: '09359876543' },
+      defaults: {
+        phone_number: '09359876543',
+        password_hash: customerPasswordHash,
+        full_name: 'مهندس احمد کریمی (کشاورز نمونه پسته)',
+        farm_location: 'استان کرمان، رفسنجان',
+        role: 'customer',
+      },
+    });
 
-  console.log('✅ Admin and Customer users seeded successfully.');
+    console.log('✅ [Dev] Admin and Customer sample users seeded successfully.');
+  } else {
+    console.log('🛡️ [DB Seed] Production mode: Sample admin and customer creation skipped for security.');
+    console.log('🛡️ To create an administrator in production, execute the create-admin script:');
+    console.log('🛡️   node create-admin.js --phone <PHONE> --password <SECURE_PASSWORD> --name "<NAME>"');
+  }
+
   return { categoriesCount: categoryMap.size, productsCount: productsData.length };
 }
 

@@ -2,8 +2,11 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
+import helmet from 'helmet';
+import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
+import { devError } from './server/config/env.js';
 import categoriesRouter from './server/routes/categories.js';
 import productsRouter from './server/routes/products.js';
 import authRouter from './server/routes/auth.js';
@@ -28,10 +31,69 @@ async function startServer() {
   // Trust proxy for Cloud Run, Nginx, cPanel reverse proxy environments
   app.set('trust proxy', 1);
 
-  // Permissive and flexible CORS Configuration for Preview environment & cPanel/Android (shop.avinia.ir, api.shop.avinia.ir)
+  // Apply Security Headers via Helmet
+  app.use(
+    helmet({
+      contentSecurityPolicy: false, // Preserves Vite SPA scripts, CSS, and HMR in dev and production
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows uploaded product images and MSDS documents cross-origin
+      frameguard: false, // Permits rendering inside AI Studio preview iframe
+    })
+  );
+
+  // CORS Configuration
+  const defaultAllowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'https://shop.avinia.ir',
+    'https://api.shop.avinia.ir',
+  ];
+
+  const envAllowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
+
+  if (isProduction && envAllowedOrigins.length === 0) {
+    console.warn('⚠️ [CORS Warning] ALLOWED_ORIGINS environment variable is not defined in production.');
+    console.warn(`⚠️ [CORS Warning] Falling back to default allowed production origins: ${defaultAllowedOrigins.join(', ')}`);
+  }
+
+  // In non-production, if ALLOWED_ORIGINS is not set, allow all for dev & preview iframe
+  const allowedOriginsList = envAllowedOrigins.length > 0
+    ? envAllowedOrigins
+    : (!isProduction ? ['*'] : defaultAllowedOrigins);
+
   app.use(
     cors({
-      origin: true, // Automatically reflect request origin (supports AI Studio preview iframe, Cloud Run, cPanel, local dev, mobile apps)
+      origin: (origin, callback) => {
+        // Requests with no origin (mobile apps, Postman, curl, server-to-server) remain allowed
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        // Development mode wildcard support
+        if (!isProduction && allowedOriginsList.includes('*')) {
+          return callback(null, true);
+        }
+
+        // Check if incoming origin matches allowed list
+        const isAllowed = allowedOriginsList.some((allowed) => {
+          if (allowed === origin) return true;
+          if (allowed.startsWith('*.') && origin.endsWith(allowed.slice(1))) {
+            return true;
+          }
+          return false;
+        });
+
+        if (isAllowed) {
+          callback(null, true);
+        } else {
+          console.warn(`🚫 [CORS Blocked] Request from unauthorized origin: ${origin}`);
+          callback(new Error(`دسترسی CORS برای مبدا ${origin} غیرمجاز است.`));
+        }
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
@@ -51,14 +113,20 @@ async function startServer() {
   try {
     console.log('🚀 [Server] Initializing database connection...');
     await testConnection();
-    await syncDatabase({ alter: true });
+    
+    // In production, sync WITHOUT alter to prevent dangerous schema modifications on MySQL
+    await syncDatabase({ alter: !isProduction });
 
-    // Auto-seed if database is empty on first boot
-    const categoriesCount = await Category.count().catch(() => 0);
-    const productsCount = await Product.count().catch(() => 0);
-    if (categoriesCount === 0 || productsCount === 0) {
-      console.log('ℹ️ [Server] Catalog empty on startup. Running initial seed...');
-      await seedDatabase();
+    // Auto-seed only in development / non-production
+    if (!isProduction) {
+      const categoriesCount = await Category.count().catch(() => 0);
+      const productsCount = await Product.count().catch(() => 0);
+      if (categoriesCount === 0 || productsCount === 0) {
+        console.log('ℹ️ [Server] Catalog empty on startup. Running initial seed (dev mode)...');
+        await seedDatabase();
+      }
+    } else {
+      console.log('🛡️ [Server] Production mode: Automatic seedDatabase is disabled.');
     }
   } catch (dbErr: any) {
     console.error('⚠️ [Server] Database initialization note:', dbErr.message);
@@ -102,27 +170,77 @@ async function startServer() {
     res.status(404).json({
       success: false,
       message: `مسیر API یافت نشد: ${req.method} ${req.originalUrl}`,
-      error: 'Not Found',
+      ...(!isProduction && { error: 'Not Found' }),
     });
   });
 
-  // Global Error Handler (handles CORS errors and unhandled exceptions)
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (err && (err.message?.includes('CORS') || err.message?.includes('دامنه'))) {
+  // Centralized Error-handling Middleware (Always returns JSON, never HTML)
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // 1. CORS Policy Violation
+    if (err && (err.message?.includes('CORS') || err.message?.includes('مبدا') || err.message?.includes('دامنه'))) {
       res.status(403).json({
         success: false,
         message: err.message || 'دسترسی از این مبدأ (Origin) توسط سیاست امنیتی CORS مسدود شد',
-        error: 'Forbidden - CORS Violation',
+        ...devError(err),
       });
       return;
     }
-    console.error('Unhandled server error:', err);
-    res.status(500).json({
+
+    // 2. Multer Upload Errors (File size limit, invalid field, file count)
+    if (err && (err instanceof multer.MulterError || err.name === 'MulterError')) {
+      let statusCode = 400;
+      let userMessage = 'خطا در بارگذاری فایل ارسالی';
+
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        statusCode = 413;
+        userMessage = 'حجم فایل ارسالی بیش از سقف مجاز (۱۰ مگابایت) است';
+      } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        statusCode = 400;
+        userMessage = `فیلد ارسالی فایل نامعتبر است: ${err.field || 'نامشخص'}`;
+      } else if (err.code === 'LIMIT_FILE_COUNT') {
+        statusCode = 400;
+        userMessage = 'تعداد فایل‌های ارسالی بیش از حد مجاز است';
+      }
+
+      console.warn(`⚠️ [Multer Error] ${err.code}: ${err.message}`);
+      res.status(statusCode).json({
+        success: false,
+        message: userMessage,
+        ...devError(err),
+      });
+      return;
+    }
+
+    // 3. Multer file filter custom rejection (e.g. non-image or non-pdf)
+    if (err && err.message && (err.message.includes('فرمت تصویر') || err.message.includes('فرمت برگه اطلاعات'))) {
+      res.status(400).json({
+        success: false,
+        message: err.message,
+        ...devError(err),
+      });
+      return;
+    }
+
+    // 4. JSON Body Parse Error (Malformed JSON payload)
+    if (err instanceof SyntaxError && 'body' in err) {
+      res.status(400).json({
+        success: false,
+        message: 'فرمت داده‌های JSON ارسالی نامعتبر است',
+        ...devError(err),
+      });
+      return;
+    }
+
+    // 5. Unhandled / Unexpected Server Errors
+    console.error('❌ [Central Error Handler] Unhandled exception:', err);
+    const statusCode = err.status || err.statusCode || 500;
+    res.status(statusCode).json({
       success: false,
-      message: 'خطای داخلی سرور رخ داده است',
-      error: err?.message || 'Internal Server Error',
+      message: statusCode < 500 && err.message ? err.message : 'خطای داخلی سرور رخ داده است',
+      ...devError(err),
     });
   });
+
 
   // ==========================================
   // Frontend Serving (Vite dev middleware or Static dist)

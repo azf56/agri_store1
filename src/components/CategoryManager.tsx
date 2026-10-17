@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Layers, Plus, Edit2, Trash2, AlertTriangle, CheckCircle2, Package } from 'lucide-react';
-import { Category } from '../types/api.js';
+import { Category, User } from '../types/api.js';
 import { apiFetch } from '../config/api.js';
 
 interface CategoryManagerProps {
@@ -8,6 +8,7 @@ interface CategoryManagerProps {
   loading: boolean;
   onRefresh: () => void;
   token?: string | null;
+  currentUser?: User | null;
 }
 
 export const CategoryManager: React.FC<CategoryManagerProps> = ({
@@ -15,6 +16,7 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
   loading,
   onRefresh,
   token,
+  currentUser,
 }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -136,14 +138,20 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
             </div>
           </div>
 
-          <button
-            id="open-add-category-btn"
-            onClick={handleOpenAdd}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#C27E47] hover:bg-[#A96D3C] text-white text-xs sm:text-sm font-semibold shadow-xs transition-all whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>افزودن دسته‌بندی جدید</span>
-          </button>
+          {currentUser?.role === 'admin' ? (
+            <button
+              id="open-add-category-btn"
+              onClick={handleOpenAdd}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#C27E47] hover:bg-[#A96D3C] text-white text-xs sm:text-sm font-semibold shadow-xs transition-all whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>افزودن دسته‌بندی جدید</span>
+            </button>
+          ) : (
+            <div className="text-xs text-[#8C887D] bg-[#F9F8F6] px-3.5 py-2 rounded-xl border border-[#E5E1D8]">
+              کاتالوگ عمومی دسته‌بندی‌ها
+            </div>
+          )}
         </div>
 
         {/* Status Messages */}
@@ -201,25 +209,27 @@ export const CategoryManager: React.FC<CategoryManagerProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3.5 border-t border-[#EBE7DE]">
-                <button
-                  id={`edit-category-${cat.id}-btn`}
-                  onClick={() => handleOpenEdit(cat)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#EBE7DE] hover:bg-[#DED9CE] text-[#3C3A33] text-xs font-medium border border-[#DCD7CB] transition-colors"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>ویرایش</span>
-                </button>
+              {currentUser?.role === 'admin' && (
+                <div className="flex items-center justify-end gap-2 pt-3.5 border-t border-[#EBE7DE]">
+                  <button
+                    id={`edit-category-${cat.id}-btn`}
+                    onClick={() => handleOpenEdit(cat)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#EBE7DE] hover:bg-[#DED9CE] text-[#3C3A33] text-xs font-medium border border-[#DCD7CB] transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>ویرایش</span>
+                  </button>
 
-                <button
-                  id={`delete-category-${cat.id}-btn`}
-                  onClick={() => handleDelete(cat.id, cat.name)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FEF2F2] hover:bg-[#FCDADA] text-[#B04A4A] text-xs font-medium border border-[#FCDADA] transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>حذف</span>
-                </button>
-              </div>
+                  <button
+                    id={`delete-category-${cat.id}-btn`}
+                    onClick={() => handleDelete(cat.id, cat.name)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FEF2F2] hover:bg-[#FCDADA] text-[#B04A4A] text-xs font-medium border border-[#FCDADA] transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف</span>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

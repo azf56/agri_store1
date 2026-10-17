@@ -243,9 +243,10 @@ export const ApiWorkbench: React.FC = () => {
     {
       method: 'GET',
       path: '/api/auth/users',
-      title: 'لیست کاربران ذخیره‌شده در MySQL (بدون پسورد)',
+      title: 'لیست کاربران ذخیره‌شده در MySQL (مخصوص مدیر)',
       category: 'auth',
-      description: 'استعلام تمام رکوردهای جدول users بدون افشای password_hash جهت بازرسی',
+      requiresAuth: true,
+      description: 'استعلام تمام رکوردهای جدول users با اعتبارسنجی توکن ادمین (authenticateToken + requireAdmin)',
     },
     // Product Catalog Endpoints (Public)
     {
@@ -284,14 +285,23 @@ export const ApiWorkbench: React.FC = () => {
       path: '/api/system/status',
       title: 'بررسی وضعیت سلامت دیتابیس و کانکشن پولینگ',
       category: 'system',
-      description: 'گزارش دایالکت MySQL، پورت سرور، تعداد رکوردهای جداول و متغیرهای محیطی',
+      description: 'گزارش دایالکت MySQL، وضعیت کانکشن و تعداد رکوردهای جداول بدون افشای نام دیتابیس و هاست',
     },
     {
       method: 'POST',
       path: '/api/system/seed',
-      title: 'اجرای اسکریپت Seed دیتابیس',
+      title: 'اجرای اسکریپت Seed دیتابیس (مخصوص مدیر)',
       category: 'system',
-      description: 'درج خودکار کاتالوگ واقعی نهاده‌های کشاورزی، کودها، سموم و بذور در دیتابیس',
+      requiresAuth: true,
+      description: 'درج خودکار کاتالوگ واقعی نهاده‌های کشاورزی در دیتابیس (نیاز به توکن مدیر)',
+    },
+    {
+      method: 'POST',
+      path: '/api/system/sync',
+      title: 'همگام‌سازی ساختار جداول دیتابیس (مخصوص مدیر)',
+      category: 'system',
+      requiresAuth: true,
+      description: 'اجرای sync بر روی ساختار مدل‌های Sequelize (نیاز به توکن مدیر)',
     },
   ];
 

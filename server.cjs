@@ -27,7 +27,24 @@ var import_path3 = __toESM(require("path"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_cors = __toESM(require("cors"), 1);
 var import_vite = require("vite");
-var import_dotenv2 = __toESM(require("dotenv"), 1);
+var import_dotenv3 = __toESM(require("dotenv"), 1);
+
+// server/config/env.ts
+var import_dotenv = __toESM(require("dotenv"), 1);
+import_dotenv.default.config();
+var NODE_ENV = process.env.NODE_ENV || "development";
+var IS_PRODUCTION = NODE_ENV === "production";
+if (IS_PRODUCTION && (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim() === "")) {
+  console.error("\n\u274C ==============================================================");
+  console.error("\u274C [FATAL SECURITY ERROR] JWT_SECRET is NOT defined in production!");
+  console.error("\u274C Set JWT_SECRET in your cPanel environment variables or .env file.");
+  console.error("\u274C Server startup aborted to prevent insecure token generation.");
+  console.error("\u274C ==============================================================\n");
+  process.exit(1);
+}
+var JWT_SECRET = process.env.JWT_SECRET || "agri_dev_secret_key_only_for_local_debugging_not_production_2026";
+var JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+var ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
 
 // server/routes/categories.ts
 var import_express = require("express");
@@ -37,10 +54,10 @@ var import_sequelize2 = require("sequelize");
 
 // server/config/database.ts
 var import_sequelize = require("sequelize");
-var import_dotenv = __toESM(require("dotenv"), 1);
+var import_dotenv2 = __toESM(require("dotenv"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
-import_dotenv.default.config();
+import_dotenv2.default.config();
 var isProduction = process.env.NODE_ENV === "production";
 var dbHost = process.env.DB_HOST || "localhost";
 var dbPort = parseInt(process.env.DB_PORT || "3306", 10);
@@ -714,8 +731,6 @@ var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
 // server/controllers/authController.ts
 var import_bcryptjs = __toESM(require("bcryptjs"), 1);
 var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
-var JWT_SECRET = process.env.JWT_SECRET || "super_secret_jwt_key_for_agri_store_2026_change_in_production";
-var JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 var register = async (req, res) => {
   try {
     const { phone_number, password, full_name, farm_location } = req.body;
@@ -745,7 +760,7 @@ var register = async (req, res) => {
         role: newUser.role
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN || "7d" }
+      { expiresIn: JWT_EXPIRES_IN }
     );
     res.status(201).json({
       success: true,
@@ -798,7 +813,7 @@ var login = async (req, res) => {
         role: user.role
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN || "7d" }
+      { expiresIn: JWT_EXPIRES_IN }
     );
     res.status(200).json({
       success: true,
@@ -917,7 +932,6 @@ var listUsers = async (_req, res) => {
 
 // server/middleware/auth.ts
 var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
-var JWT_SECRET2 = process.env.JWT_SECRET || "super_secret_jwt_key_for_agri_store_2026_change_in_production";
 var authenticateJWT = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -936,7 +950,7 @@ var authenticateJWT = async (req, res, next) => {
       });
       return;
     }
-    const decoded = import_jsonwebtoken2.default.verify(token, JWT_SECRET2);
+    const decoded = import_jsonwebtoken2.default.verify(token, JWT_SECRET);
     const user = await User.findByPk(decoded.id, {
       attributes: { exclude: ["password_hash"] }
     });
@@ -1120,7 +1134,7 @@ router3.post("/register", validate(registerUserSchema), register);
 router3.post("/login", loginRateLimiter, validate(loginUserSchema), login);
 router3.get("/me", authenticateToken, getMe);
 router3.put("/profile", authenticateToken, validate(updateProfileSchema), updateProfile);
-router3.get("/users", listUsers);
+router3.get("/users", authenticateToken, requireAdmin, listUsers);
 var auth_default = router3;
 
 // server/routes/cart.ts
@@ -1623,7 +1637,11 @@ var getOrders = async (req, res) => {
       });
       return;
     }
-    const isUserAdmin = req.user?.role === "admin";
+    let isUserAdmin = false;
+    if (req.query.all === "true") {
+      const dbUser2 = await User.findByPk(userId);
+      isUserAdmin = dbUser2?.role === "admin";
+    }
     const whereClause = isUserAdmin && req.query.all === "true" ? {} : { user_id: userId };
     const orders = await Order.findAll({
       where: whereClause,
@@ -2346,7 +2364,7 @@ var import_bcryptjs2 = __toESM(require("bcryptjs"), 1);
 async function seedDatabase() {
   console.log("\u{1F331} [DB Seed] Starting database seeding with realistic agricultural data...");
   await testConnection();
-  await sequelize.sync({ alter: true });
+  await sequelize.sync({ alter: process.env.NODE_ENV !== "production" });
   const categoriesData = [
     {
       name: "\u06A9\u0648\u062F\u0647\u0627\u06CC \u0634\u06CC\u0645\u06CC\u0627\u06CC\u06CC \u0648 \u0627\u0631\u06AF\u0627\u0646\u06CC\u06A9",
@@ -2541,29 +2559,35 @@ async function seedDatabase() {
     if (created) insertedCount++;
   }
   console.log(`\u2705 Seeded ${insertedCount} new products (Total catalog size: ${productsData.length}).`);
-  const adminPasswordHash = await import_bcryptjs2.default.hash("admin123456", 10);
-  await User.findOrCreate({
-    where: { phone_number: "09121234567" },
-    defaults: {
-      phone_number: "09121234567",
-      password_hash: adminPasswordHash,
-      full_name: "\u0645\u062F\u06CC\u0631 \u0627\u0631\u0634\u062F \u0633\u0627\u0645\u0627\u0646\u0647 \u0646\u0647\u0627\u062F\u0647\u200C\u0647\u0627\u06CC \u06A9\u0634\u0627\u0648\u0631\u0632\u06CC",
-      farm_location: "\u062F\u0641\u062A\u0631 \u0645\u0631\u06A9\u0632\u06CC \u062A\u0647\u0631\u0627\u0646 / \u0627\u0633\u062A\u0627\u0646 \u0627\u0644\u0628\u0631\u0632",
-      role: "admin"
-    }
-  });
-  const customerPasswordHash = await import_bcryptjs2.default.hash("farmer123456", 10);
-  await User.findOrCreate({
-    where: { phone_number: "09359876543" },
-    defaults: {
-      phone_number: "09359876543",
-      password_hash: customerPasswordHash,
-      full_name: "\u0645\u0647\u0646\u062F\u0633 \u0627\u062D\u0645\u062F \u06A9\u0631\u06CC\u0645\u06CC (\u06A9\u0634\u0627\u0648\u0631\u0632 \u0646\u0645\u0648\u0646\u0647 \u067E\u0633\u062A\u0647)",
-      farm_location: "\u0627\u0633\u062A\u0627\u0646 \u06A9\u0631\u0645\u0627\u0646\u060C \u0631\u0641\u0633\u0646\u062C\u0627\u0646",
-      role: "customer"
-    }
-  });
-  console.log("\u2705 Admin and Customer users seeded successfully.");
+  if (process.env.NODE_ENV !== "production") {
+    const adminPasswordHash = await import_bcryptjs2.default.hash("admin123456", 10);
+    await User.findOrCreate({
+      where: { phone_number: "09121234567" },
+      defaults: {
+        phone_number: "09121234567",
+        password_hash: adminPasswordHash,
+        full_name: "\u0645\u062F\u06CC\u0631 \u0627\u0631\u0634\u062F \u0633\u0627\u0645\u0627\u0646\u0647 \u0646\u0647\u0627\u062F\u0647\u200C\u0647\u0627\u06CC \u06A9\u0634\u0627\u0648\u0631\u0632\u06CC",
+        farm_location: "\u062F\u0641\u062A\u0631 \u0645\u0631\u06A9\u0632\u06CC \u062A\u0647\u0631\u0627\u0646 / \u0627\u0633\u062A\u0627\u0646 \u0627\u0644\u0628\u0631\u0632",
+        role: "admin"
+      }
+    });
+    const customerPasswordHash = await import_bcryptjs2.default.hash("farmer123456", 10);
+    await User.findOrCreate({
+      where: { phone_number: "09359876543" },
+      defaults: {
+        phone_number: "09359876543",
+        password_hash: customerPasswordHash,
+        full_name: "\u0645\u0647\u0646\u062F\u0633 \u0627\u062D\u0645\u062F \u06A9\u0631\u06CC\u0645\u06CC (\u06A9\u0634\u0627\u0648\u0631\u0632 \u0646\u0645\u0648\u0646\u0647 \u067E\u0633\u062A\u0647)",
+        farm_location: "\u0627\u0633\u062A\u0627\u0646 \u06A9\u0631\u0645\u0627\u0646\u060C \u0631\u0641\u0633\u0646\u062C\u0627\u0646",
+        role: "customer"
+      }
+    });
+    console.log("\u2705 [Dev] Admin and Customer sample users seeded successfully.");
+  } else {
+    console.log("\u{1F6E1}\uFE0F [DB Seed] Production mode: Sample admin and customer creation skipped for security.");
+    console.log("\u{1F6E1}\uFE0F To create an administrator in production, execute the create-admin script:");
+    console.log('\u{1F6E1}\uFE0F   node create-admin.js --phone <PHONE> --password <SECURE_PASSWORD> --name "<NAME>"');
+  }
   return { categoriesCount: categoryMap.size, productsCount: productsData.length };
 }
 if (process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js")) {
@@ -2607,12 +2631,18 @@ async function syncDatabase(options = { alter: true }) {
       console.log("\u26A0\uFE0F [DB Migration note on users]:", e.message);
     }
   } else {
-    await sequelize.sync(options);
+    const isProduction3 = process.env.NODE_ENV === "production";
+    if (isProduction3) {
+      console.log("\u{1F6E1}\uFE0F [DB Sync] Production mode: Running safe sequelize.sync() WITHOUT alter to prevent table corruption.");
+      await sequelize.sync();
+    } else {
+      await sequelize.sync(options);
+    }
   }
   console.log("\u2705 [DB Sync] All database tables (Categories, Products, Users, Orders, OrderItems, CartItems) synchronized successfully!");
 }
 if (process.argv[1]?.endsWith("syncDb.ts") || process.argv[1]?.endsWith("syncDb.js")) {
-  syncDatabase({ alter: true }).then(() => {
+  syncDatabase({ alter: process.env.NODE_ENV !== "production" }).then(() => {
     console.log("\u{1F680} Database sync process finished.");
     process.exit(0);
   }).catch((err) => {
@@ -2643,9 +2673,7 @@ router7.get("/status", async (req, res) => {
       database: {
         connected: conn.success,
         dialect: conn.dialect,
-        host: process.env.DB_HOST || "localhost",
-        port: process.env.DB_PORT || 3306,
-        database_name: process.env.DB_NAME || "agri_store_db",
+        status: conn.success ? "operational" : "disconnected",
         connection_pool: {
           max: 10,
           min: 0,
@@ -2661,7 +2689,6 @@ router7.get("/status", async (req, res) => {
       },
       environment: {
         node_env: process.env.NODE_ENV || "development",
-        port: process.env.PORT || 3e3,
         cpanel_compatible: true
       }
     });
@@ -2673,9 +2700,9 @@ router7.get("/status", async (req, res) => {
     });
   }
 });
-router7.post("/sync", async (req, res) => {
+router7.post("/sync", authenticateToken, requireAdmin, async (req, res) => {
   try {
-    await syncDatabase({ alter: true });
+    await syncDatabase({ alter: process.env.NODE_ENV !== "production" });
     res.json({
       success: true,
       message: "\u062C\u062F\u0627\u0648\u0644 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0628\u0627 \u0645\u062F\u0644\u200C\u0647\u0627\u06CC Sequelize \u0647\u0645\u06AF\u0627\u0645\u200C\u0633\u0627\u0632\u06CC (Sync) \u0634\u062F\u0646\u062F."
@@ -2688,7 +2715,7 @@ router7.post("/sync", async (req, res) => {
     });
   }
 });
-router7.post("/seed", async (req, res) => {
+router7.post("/seed", authenticateToken, requireAdmin, async (req, res) => {
   try {
     const stats = await seedDatabase();
     res.json({
@@ -2707,16 +2734,49 @@ router7.post("/seed", async (req, res) => {
 var system_default = router7;
 
 // server.ts
-import_dotenv2.default.config();
+import_dotenv3.default.config();
 var PORT = 3e3;
 var isProduction2 = process.env.NODE_ENV === "production";
 async function startServer() {
   const app = (0, import_express8.default)();
   app.set("trust proxy", 1);
+  const defaultAllowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://shop.avinia.ir",
+    "https://api.shop.avinia.ir"
+  ];
+  const envAllowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
+  if (isProduction2 && envAllowedOrigins.length === 0) {
+    console.warn("\u26A0\uFE0F [CORS Warning] ALLOWED_ORIGINS environment variable is not defined in production.");
+    console.warn(`\u26A0\uFE0F [CORS Warning] Falling back to default allowed production origins: ${defaultAllowedOrigins.join(", ")}`);
+  }
+  const allowedOriginsList = envAllowedOrigins.length > 0 ? envAllowedOrigins : !isProduction2 ? ["*"] : defaultAllowedOrigins;
   app.use(
     (0, import_cors.default)({
-      origin: true,
-      // Automatically reflect request origin (supports AI Studio preview iframe, Cloud Run, cPanel, local dev, mobile apps)
+      origin: (origin, callback) => {
+        if (!origin) {
+          return callback(null, true);
+        }
+        if (!isProduction2 && allowedOriginsList.includes("*")) {
+          return callback(null, true);
+        }
+        const isAllowed = allowedOriginsList.some((allowed) => {
+          if (allowed === origin) return true;
+          if (allowed.startsWith("*.") && origin.endsWith(allowed.slice(1))) {
+            return true;
+          }
+          return false;
+        });
+        if (isAllowed) {
+          callback(null, true);
+        } else {
+          console.warn(`\u{1F6AB} [CORS Blocked] Request from unauthorized origin: ${origin}`);
+          callback(new Error(`\u062F\u0633\u062A\u0631\u0633\u06CC CORS \u0628\u0631\u0627\u06CC \u0645\u0628\u062F\u0627 ${origin} \u063A\u06CC\u0631\u0645\u062C\u0627\u0632 \u0627\u0633\u062A.`));
+        }
+      },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"]
@@ -2731,12 +2791,16 @@ async function startServer() {
   try {
     console.log("\u{1F680} [Server] Initializing database connection...");
     await testConnection();
-    await syncDatabase({ alter: true });
-    const categoriesCount = await Category.count().catch(() => 0);
-    const productsCount = await Product.count().catch(() => 0);
-    if (categoriesCount === 0 || productsCount === 0) {
-      console.log("\u2139\uFE0F [Server] Catalog empty on startup. Running initial seed...");
-      await seedDatabase();
+    await syncDatabase({ alter: !isProduction2 });
+    if (!isProduction2) {
+      const categoriesCount = await Category.count().catch(() => 0);
+      const productsCount = await Product.count().catch(() => 0);
+      if (categoriesCount === 0 || productsCount === 0) {
+        console.log("\u2139\uFE0F [Server] Catalog empty on startup. Running initial seed (dev mode)...");
+        await seedDatabase();
+      }
+    } else {
+      console.log("\u{1F6E1}\uFE0F [Server] Production mode: Automatic seedDatabase is disabled.");
     }
   } catch (dbErr) {
     console.error("\u26A0\uFE0F [Server] Database initialization note:", dbErr.message);

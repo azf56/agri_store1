@@ -43,9 +43,9 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
   const [regFullName, setRegFullName] = useState('');
   const [regFarmLocation, setRegFarmLocation] = useState('');
   
-  // Login form state
-  const [loginPhone, setLoginPhone] = useState('09359876543');
-  const [loginPassword, setLoginPassword] = useState('farmer123456');
+  // Login form state (empty defaults for security)
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Edit profile state
   const [editFullName, setEditFullName] = useState('');
@@ -62,35 +62,11 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
   const [liveMeData, setLiveMeData] = useState<any | null>(null);
   const [inspectingMe, setInspectingMe] = useState(false);
 
-  // Users in MySQL table state
-  const [usersList, setUsersList] = useState<User[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-
   useEffect(() => {
     if (currentUser) {
       setEditFullName(currentUser.full_name || '');
       setEditFarmLocation(currentUser.farm_location || '');
     }
-  }, [currentUser]);
-
-  // Load all users from MySQL
-  const fetchUsers = async () => {
-    setLoadingUsers(true);
-    try {
-      const res = await apiFetch('/api/auth/users');
-      const data = await res.json();
-      if (data.success && data.users) {
-        setUsersList(data.users);
-      }
-    } catch (err) {
-      console.error('Failed to fetch users:', err);
-    } finally {
-      setLoadingUsers(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchUsers();
   }, [currentUser]);
 
   // Clear messages after 5 seconds
@@ -148,7 +124,6 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
         onLoginSuccess(data.token, data.user);
       }
       setRegPassword('');
-      fetchUsers();
     } catch (err: any) {
       setFlashError(err.message || 'خطا در برقراری ارتباط با سرور');
     } finally {
@@ -252,7 +227,6 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
         onUserUpdated(data.user);
       }
       setIsEditingProfile(false);
-      fetchUsers();
     } catch (err: any) {
       setFlashError(err.message || 'خطا در به‌روزرسانی پروفایل');
     } finally {
@@ -437,24 +411,15 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
                 </div>
               )}
 
-              {/* JWT Bearer Token Inspection Box */}
-              <div className="bg-[#1E2E25] text-[#F4F1EA] p-4 rounded-xl border border-[#234032] space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-[#A2D9A1] font-bold">
-                    <Key className="w-4 h-4" />
-                    <span>توکن فعال احراز هویت (JWT Bearer Token - انقضا ۷ روز)</span>
-                  </div>
-                  <button
-                    onClick={copyTokenToClipboard}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#2D4F3E] hover:bg-[#38614D] text-[#E5E1D8] text-[11px] transition-colors"
-                  >
-                    {copiedToken ? <Check className="w-3.5 h-3.5 text-[#A2D9A1]" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedToken ? 'کپی شد' : 'کپی توکن'}</span>
-                  </button>
+              {/* Active Session Status Indicator */}
+              <div className="bg-[#E8F0EC] p-3.5 rounded-xl border border-[#D2E3D8] flex items-center justify-between text-xs text-[#2D4F3E]">
+                <div className="flex items-center gap-2 font-semibold">
+                  <Key className="w-4 h-4 text-[#2D4F3E]" />
+                  <span>وضعیت احراز هویت: نشست امن JWT فعال است (اعتبارسنجی در هر درخواست)</span>
                 </div>
-                <div className="p-2.5 bg-[#17241D] rounded-lg font-mono text-[11px] text-[#A2D9A1] break-all direction-ltr text-left border border-[#2D4F3E]">
-                  {authToken}
-                </div>
+                <span className="text-[11px] font-mono bg-white px-2 py-0.5 rounded-md border border-[#D2E3D8] text-[#2D4F3E]">
+                  اعتبار: ۷ روز
+                </span>
               </div>
 
               {/* Live Test GET /api/auth/me */}
@@ -558,32 +523,7 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
                       </div>
                     </div>
 
-                    {/* Quick Demo Accounts */}
-                    <div className="p-3 bg-[#F4F1EA] rounded-xl border border-[#E5E1D8] space-y-1.5">
-                      <span className="text-[11px] font-bold text-[#2D4F3E] block">حساب‌های نمونه آماده برای تست سریع:</span>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLoginPhone('09359876543');
-                            setLoginPassword('farmer123456');
-                          }}
-                          className="px-2.5 py-1 rounded bg-white text-[#3C3A33] border border-[#DCD7CB] text-[11px] hover:bg-[#EBE7DE] transition-colors"
-                        >
-                          کشاورز: <span className="font-mono text-[#2D4F3E]">09359876543</span> (farmer123456)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLoginPhone('09121234567');
-                            setLoginPassword('admin123456');
-                          }}
-                          className="px-2.5 py-1 rounded bg-white text-[#3C3A33] border border-[#DCD7CB] text-[11px] hover:bg-[#EBE7DE] transition-colors"
-                        >
-                          مدیر ارشد: <span className="font-mono text-[#2D4F3E]">09121234567</span> (admin123456)
-                        </button>
-                      </div>
-                    </div>
+
 
                     <button
                       type="submit"
@@ -689,67 +629,35 @@ export const AuthManager: React.FC<AuthManagerProps> = ({
 
         </div>
 
-        {/* Right Section: Users Table in Database Explorer & Security Guidelines */}
+        {/* Right Section: Account Guidelines & Security Architecture */}
         <div className="lg:col-span-5 space-y-6">
           
-          {/* Registered Users in MySQL */}
+          {/* Account Guidelines & Benefits for Farmers */}
           <div className="bg-white rounded-2xl border border-[#E5E1D8] shadow-sm p-4 sm:p-5 space-y-3.5">
-            <div className="flex items-center justify-between pb-2 border-b border-[#EBE7DE]">
-              <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-[#2D4F3E]" />
-                <h3 className="text-xs font-bold text-[#2D4F3E]">کاربران ثبت‌شده در جدول MySQL (Users)</h3>
-              </div>
-              <button
-                onClick={fetchUsers}
-                disabled={loadingUsers}
-                title="تازه سازی لیست کاربران"
-                className="p-1 rounded-lg hover:bg-[#F4F1EA] text-[#8C887D] hover:text-[#2D4F3E] transition-colors"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingUsers ? 'animate-spin' : ''}`} />
-              </button>
+            <div className="flex items-center gap-2 pb-2 border-b border-[#EBE7DE]">
+              <Database className="w-4 h-4 text-[#2D4F3E]" />
+              <h3 className="text-xs font-bold text-[#2D4F3E]">حساب کاربری خریداران و کشاورزان</h3>
             </div>
 
-            {loadingUsers ? (
-              <div className="text-center py-6 text-xs text-[#8C887D] animate-pulse">
-                در حال خواندن کاربران از دیتابیس...
-              </div>
-            ) : usersList.length === 0 ? (
-              <div className="text-center py-6 text-xs text-[#8C887D]">
-                هنوز کاربری ثبت نشده است.
-              </div>
-            ) : (
-              <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
-                {usersList.map((u) => (
-                  <div
-                    key={u.id}
-                    className={`p-3 rounded-xl border text-xs transition-all ${
-                      currentUser?.id === u.id
-                        ? 'bg-[#E8F0EC] border-[#8BA888]'
-                        : 'bg-[#F9F8F6] border-[#E5E1D8]'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="font-bold text-[#2D4F3E] flex items-center gap-1.5">
-                        <span>{u.full_name}</span>
-                        {currentUser?.id === u.id && (
-                          <span className="text-[10px] bg-[#2D4F3E] text-white px-1.5 py-0.2 rounded font-normal">
-                            شما
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-mono text-[11px] text-[#8C887D]">
-                        #{u.id}
-                      </span>
-                    </div>
+            <p className="text-xs text-[#6B685E] leading-relaxed">
+              با ایجاد حساب کاربری در سامانه، اطلاعات مزرعه، سبد خرید و تاریخچه سفارشات شما مستقیماً در پایگاه داده MySQL ذخیره شده و در تمامی دستگاه‌ها در دسترس خواهد بود.
+            </p>
 
-                    <div className="flex items-center justify-between text-[11px] text-[#6B685E]">
-                      <span className="font-mono">{u.phone_number}</span>
-                      <span className="text-[#C27E47] font-medium">{u.farm_location || 'بدون موقعیت'}</span>
-                    </div>
-                  </div>
-                ))}
+            <div className="space-y-2.5 pt-1">
+              <div className="p-3 rounded-xl bg-[#F9F8F6] border border-[#E5E1D8] text-xs">
+                <div className="font-bold text-[#2D4F3E] mb-1">حفظ محرمانگی اطلاعات کاربران</div>
+                <div className="text-[11px] text-[#6B685E] leading-relaxed">
+                  فهرست مشتریان و شماره تماس کاربران در سامانه به صورت محرمانه نگهداری می‌شود و تنها مدیر سیستم از طریق پنل مدیریت دسترسی مجاز خواهد داشت.
+                </div>
               </div>
-            )}
+
+              <div className="p-3 rounded-xl bg-[#F9F8F6] border border-[#E5E1D8] text-xs">
+                <div className="font-bold text-[#2D4F3E] mb-1">ثبت آدرس مزرعه جهت ارسال کود و سم</div>
+                <div className="text-[11px] text-[#6B685E] leading-relaxed">
+                  با تکمیل موقعیت باغ یا مزرعه در پروفایل کاربری، آدرس پیش‌فرض در فاکتور سفارش و حواله‌های باربری به طور خودکار درج می‌گردد.
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Security & Architectural Highlights */}

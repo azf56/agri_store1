@@ -121,8 +121,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [categoryDesc, setCategoryDesc] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
 
-  // Quick Demo Login Loading State
-  const [loggingInDemoAdmin, setLoggingInDemoAdmin] = useState(false);
 
   // Status/Feedback Toast
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -191,7 +189,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!token || !isAdmin) return;
     setLoadingProducts(true);
     try {
-      const res = await apiFetch('/api/v1/products?limit=200', {
+      const res = await apiFetch('/api/v1/products?limit=200&include_inactive=true', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -223,36 +221,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [ordersFilterStatus, activeTab]);
 
-  // Demo Admin Login Handler (1-Click for Instant Testing)
-  const handleDemoAdminLogin = async () => {
-    setLoggingInDemoAdmin(true);
-    try {
-      const res = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          phone_number: '09121234567',
-          password: 'admin123456',
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success && data.token && data.user) {
-        if (onLoginSuccess) {
-          onLoginSuccess(data.token, data.user);
-        }
-        showToast('با حساب کاربری مدیر کل با موفقیت وارد شدید.', 'success');
-      } else {
-        showToast(data.message || 'خطا در ورود به عنوان مدیر', 'error');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'خطا در ارتباط با سرور', 'error');
-    } finally {
-      setLoggingInDemoAdmin(false);
-    }
-  };
 
   // Update Order Status
   const handleUpdateOrderStatus = async (orderId: number, newStatus: OrderStatus) => {
@@ -686,33 +654,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           ) : (
             <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-900 text-sm max-w-lg mx-auto font-medium">
-              شما در حال حاضر وارد حساب کاربری نشده‌اید. می‌توانید با حساب مدیر نمونه با یک کلیک وارد شوید.
+              شما در حال حاضر با حساب مدیر وارد نشده‌اید. برای دسترسی به پنل مدیریت، لطفاً با حساب معتبر خود وارد شوید.
             </div>
           )}
 
-          {/* Quick 1-Click Demo Login Button for Instant Testing */}
+          {/* Navigation to Auth Page */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <button
-              id="admin-quick-demo-login-btn"
-              onClick={handleDemoAdminLogin}
-              disabled={loggingInDemoAdmin}
-              className="px-6 py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-xl shadow-lg transition-all flex items-center gap-2"
-            >
-              {loggingInDemoAdmin ? (
-                <RefreshCw className="w-5 h-5 animate-spin" />
-              ) : (
-                <ShieldCheck className="w-5 h-5 text-emerald-300" />
-              )}
-              ورود سریع با حساب مدیر نمونه (09121234567)
-            </button>
-
             <button
               id="admin-go-to-auth-btn"
               onClick={onNavigateToAuth}
-              className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl border border-slate-300 transition-all flex items-center gap-2"
+              className="px-6 py-3 bg-[#2D4F3E] hover:bg-[#234032] text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2 text-sm cursor-pointer"
             >
-              <Users className="w-5 h-5 text-slate-600" />
-              صفحه ورود اختصاصی
+              <Users className="w-5 h-5 text-emerald-300" />
+              ورود به حساب کاربری مدیر
             </button>
           </div>
 
@@ -720,13 +674,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="bg-slate-900 text-slate-200 p-5 rounded-xl text-right font-mono text-xs space-y-3 max-w-2xl mx-auto border border-slate-800">
             <div className="flex items-center gap-2 text-emerald-400 font-bold border-b border-slate-800 pb-2">
               <Terminal className="w-4 h-4" />
-              <span>ساخت یا ارتقای کاربر مدیر از طریق ترمینال cPanel (بدون API عمومی):</span>
+              <span>ساخت یا ارتقای کاربر مدیر از طریق ترمینال سرور cPanel / SSH:</span>
             </div>
-            <p className="text-slate-400 text-xs">
-              مطابق اصول امنیتی، ساخت ادمین در محیط پروداکشن صرفاً از طریق اسکریپت سروری CLI اجرا می‌شود:
+            <p className="text-slate-400 text-xs leading-relaxed">
+              جهت رعایت اصول امنیت پروداکشن، ساخت حساب ادمین بدون مسیر عمومی و صرفاً از خط فرمان ترمینال با رمز عبور اختصاصی انجام می‌شود:
             </p>
             <div className="bg-black/50 p-3 rounded text-left font-mono text-emerald-300 overflow-x-auto" dir="ltr">
-              node create-admin.js --phone 09121234567 --password admin123456 --name "مدیر کل"
+              node create-admin.js --phone 0912XXXXXXX --password YOUR_SECURE_PASSWORD --name "نام مدیر"
             </div>
           </div>
         </div>

@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User, UserAttributes } from '../models/index.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_agri_store_2026_change_in_production';
+import { JWT_SECRET, devError } from '../config/env.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: UserAttributes;
@@ -57,7 +56,7 @@ export const authenticateJWT = async (
     res.status(401).json({
       success: false,
       message: 'توکن نامعتبر یا منقضی شده است',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -133,7 +132,7 @@ export const requireAdmin = async (
     res.status(500).json({
       success: false,
       message: 'خطا در بررسی سطح دسترسی مدیریت در پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

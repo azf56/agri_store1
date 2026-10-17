@@ -10,6 +10,8 @@ import {
   OrderStatus,
 } from '../models/index.js';
 import { buildAbsoluteUploadUrl } from '../middleware/upload.js';
+import { devError } from '../config/env.js';
+
 
 /**
  * Controller for Admin Panel functionalities
@@ -100,7 +102,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
     res.status(500).json({
       success: false,
       message: 'خطا در محاسبه آمار داشبورد از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -195,7 +197,7 @@ export const adminCreateProduct = async (req: Request, res: Response): Promise<v
     res.status(500).json({
       success: false,
       message: 'خطا در ثبت محصول در دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -289,7 +291,7 @@ export const adminUpdateProduct = async (req: Request, res: Response): Promise<v
     res.status(500).json({
       success: false,
       message: 'خطا در به‌روزرسانی محصول در دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -347,7 +349,7 @@ export const adminDeleteProduct = async (req: Request, res: Response): Promise<v
     res.status(500).json({
       success: false,
       message: 'خطا در حذف یا غیرفعال‌سازی محصول در دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -390,7 +392,7 @@ export const adminCreateCategory = async (req: Request, res: Response): Promise<
     res.status(500).json({
       success: false,
       message: 'خطا در ثبت دسته‌بندی در پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -424,7 +426,7 @@ export const adminUpdateCategory = async (req: Request, res: Response): Promise<
     res.status(500).json({
       success: false,
       message: 'خطا در به‌روزرسانی دسته‌بندی',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -466,7 +468,7 @@ export const adminDeleteCategory = async (req: Request, res: Response): Promise<
     res.status(500).json({
       success: false,
       message: 'خطا در حذف دسته‌بندی از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -535,7 +537,7 @@ export const adminGetAllOrders = async (req: Request, res: Response): Promise<vo
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت لیست سفارش‌های کاربران از پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -592,7 +594,7 @@ export const adminUpdateOrderStatus = async (req: Request, res: Response): Promi
     res.status(500).json({
       success: false,
       message: 'خطا در تغییر وضعیت سفارش در پایگاه داده',
-      error: error.message,
+      ...devError(error),
     });
   }
 };

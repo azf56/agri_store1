@@ -1,31 +1,45 @@
 import React, { useState } from 'react';
 import { Database, RefreshCw, CheckCircle2, AlertTriangle, Play, Sparkles, Table2, Layers, Package, Users } from 'lucide-react';
-import { SystemStatusResponse } from '../types/api.js';
+import { SystemStatusResponse, User } from '../types/api.js';
 import { apiFetch } from '../config/api.js';
 
 interface DatabaseStatusCardProps {
   status: SystemStatusResponse | null;
   onRefresh: () => void;
   onSeedSuccess: () => void;
+  currentUser?: User | null;
+  token?: string | null;
 }
 
 export const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = ({
   status,
   onRefresh,
   onSeedSuccess,
+  currentUser,
+  token,
 }) => {
   const [seeding, setSeeding] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const handleSeedDatabase = async () => {
+    if (!token || currentUser?.role !== 'admin') {
+      setActionMessage({ text: 'دسترسی غیرمجاز: اجرای درج داده‌های نمونه (Seed) تنها توسط مدیر فروشگاه امکان‌پذیر است.', type: 'error' });
+      return;
+    }
+
     if (!confirm('آیا مایلید داده‌های نمونه کشاورزی (کود، سم، بذر، دسته‌ها و کاربران) مستقیماً در دیتابیس درج شوند؟')) {
       return;
     }
     setSeeding(true);
     setActionMessage(null);
     try {
-      const res = await apiFetch('/api/system/seed', { method: 'POST' });
+      const res = await apiFetch('/api/system/seed', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       const data = await res.json();
       if (data.success) {
         setActionMessage({ text: data.message || 'داده‌های نمونه با موفقیت در دیتابیس درج شدند', type: 'success' });
@@ -41,10 +55,20 @@ export const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = ({
   };
 
   const handleSyncDatabase = async () => {
+    if (!token || currentUser?.role !== 'admin') {
+      setActionMessage({ text: 'دسترسی غیرمجاز: همگام‌سازی ساختار جداول (Sync) تنها توسط مدیر فروشگاه امکان‌پذیر است.', type: 'error' });
+      return;
+    }
+
     setSyncing(true);
     setActionMessage(null);
     try {
-      const res = await apiFetch('/api/system/sync', { method: 'POST' });
+      const res = await apiFetch('/api/system/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
       const data = await res.json();
       if (data.success) {
         setActionMessage({ text: data.message || 'جداول با ساختار مدل‌های Sequelize همگام‌سازی شدند', type: 'success' });

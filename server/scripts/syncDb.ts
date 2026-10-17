@@ -39,7 +39,13 @@ export async function syncDatabase(options = { alter: true }): Promise<void> {
     }
   } else {
     // For MySQL / MariaDB on cPanel / VPS
-    await sequelize.sync(options);
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.log('🛡️ [DB Sync] Production mode: Running safe sequelize.sync() WITHOUT alter to prevent table corruption.');
+      await sequelize.sync(); // Strict without alter on production MySQL
+    } else {
+      await sequelize.sync(options);
+    }
   }
 
   console.log('✅ [DB Sync] All database tables (Categories, Products, Users, Orders, OrderItems, CartItems) synchronized successfully!');
@@ -47,7 +53,7 @@ export async function syncDatabase(options = { alter: true }): Promise<void> {
 
 // Run directly if called via CLI: tsx server/scripts/syncDb.ts
 if (process.argv[1]?.endsWith('syncDb.ts') || process.argv[1]?.endsWith('syncDb.js')) {
-  syncDatabase({ alter: true })
+  syncDatabase({ alter: process.env.NODE_ENV !== 'production' })
     .then(() => {
       console.log('🚀 Database sync process finished.');
       process.exit(0);

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Category, Product } from '../models/index.js';
 import { Sequelize } from 'sequelize';
+import { devError } from '../config/env.js';
 
 /**
  * Controller for Categories
@@ -56,7 +57,7 @@ export const getAllCategories = async (req: Request, res: Response): Promise<voi
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت لیست دسته‌بندی‌ها از دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
@@ -91,7 +92,7 @@ export const getCategoryById = async (req: Request, res: Response): Promise<void
     res.status(500).json({
       success: false,
       message: 'خطا در دریافت اطلاعات دسته‌بندی از دیتابیس',
-      error: error.message,
+      ...devError(error),
     });
   }
 };
