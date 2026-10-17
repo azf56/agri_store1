@@ -72,13 +72,29 @@ export const createProductSchema = Joi.object({
     'number.base': 'شناسه دسته‌بندی الزامی است',
     'any.required': 'شناسه دسته‌بندی الزامی است',
   }),
-  image_url: Joi.string().trim().allow('', null).optional(),
+  image_url: Joi.string()
+    .trim()
+    .pattern(/^(https?:\/\/|\/?uploads\/)/i)
+    .allow('', null)
+    .max(500)
+    .optional()
+    .messages({
+      'string.pattern.base': 'آدرس تصویر نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود',
+    }),
   product_type: Joi.string().valid('کود', 'سم', 'بذر').required().messages({
     'any.only': 'نوع محصول باید یکی از موارد «کود»، «سم» یا «بذر» باشد',
     'any.required': 'نوع محصول (کود، سم، بذر) الزامی است',
   }),
   required_permit_number: Joi.string().trim().allow('', null).max(100).optional(),
-  msds_file_url: Joi.string().trim().allow('', null).max(500).optional(),
+  msds_file_url: Joi.string()
+    .trim()
+    .pattern(/^(https?:\/\/|\/?uploads\/)/i)
+    .allow('', null)
+    .max(500)
+    .optional()
+    .messages({
+      'string.pattern.base': 'آدرس برگه ایمنی MSDS نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود',
+    }),
   brand: Joi.string().trim().allow('', null).max(120).optional(),
   package_size: Joi.string().trim().allow('', null).max(100).optional(),
 });
@@ -92,13 +108,30 @@ export const updateProductSchema = Joi.object({
   }),
   stock: Joi.number().integer().min(0).optional(),
   category_id: Joi.number().integer().positive().optional(),
-  image_url: Joi.string().trim().allow('', null).optional(),
+  image_url: Joi.string()
+    .trim()
+    .pattern(/^(https?:\/\/|\/?uploads\/)/i)
+    .allow('', null)
+    .max(500)
+    .optional()
+    .messages({
+      'string.pattern.base': 'آدرس تصویر نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود',
+    }),
   product_type: Joi.string().valid('کود', 'سم', 'بذر').optional(),
   required_permit_number: Joi.string().trim().allow('', null).max(100).optional(),
-  msds_file_url: Joi.string().trim().allow('', null).max(500).optional(),
+  msds_file_url: Joi.string()
+    .trim()
+    .pattern(/^(https?:\/\/|\/?uploads\/)/i)
+    .allow('', null)
+    .max(500)
+    .optional()
+    .messages({
+      'string.pattern.base': 'آدرس برگه ایمنی MSDS نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود',
+    }),
   brand: Joi.string().trim().allow('', null).max(120).optional(),
   package_size: Joi.string().trim().allow('', null).max(100).optional(),
 }).min(1);
+
 
 // ==========================================
 // User & Auth Validation Schemas

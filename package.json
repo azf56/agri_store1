@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=cjs --packages=external --outfile=create-admin.js",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=esm --packages=external --outfile=create-admin.js && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=cjs --packages=external --outfile=create-admin.cjs",
     "build:client": "vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=cjs --packages=external --outfile=create-admin.js",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server.cjs && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=esm --packages=external --outfile=create-admin.js && esbuild server/scripts/createAdmin.ts --bundle --platform=node --format=cjs --packages=external --outfile=create-admin.cjs",
     "start": "node server.cjs",
     "preview": "vite preview",
     "create-admin": "tsx server/scripts/createAdmin.ts",
+
     "db:sync": "tsx server/scripts/syncDb.ts",
     "seed": "tsx server/scripts/seed.ts",
     "clean": "rm -rf dist server.cjs server.cjs.map",

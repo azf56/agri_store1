@@ -26,6 +26,8 @@ var import_express8 = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_cors = __toESM(require("cors"), 1);
+var import_helmet = __toESM(require("helmet"), 1);
+var import_multer2 = __toESM(require("multer"), 1);
 var import_vite = require("vite");
 var import_dotenv3 = __toESM(require("dotenv"), 1);
 
@@ -45,6 +47,12 @@ if (IS_PRODUCTION && (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim() =
 var JWT_SECRET = process.env.JWT_SECRET || "agri_dev_secret_key_only_for_local_debugging_not_production_2026";
 var JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 var ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
+var devError = (err) => {
+  if (!IS_PRODUCTION && err) {
+    return { error: err?.message || String(err) };
+  }
+  return {};
+};
 
 // server/routes/categories.ts
 var import_express = require("express");
@@ -327,14 +335,21 @@ Order.init(
     },
     tracking_code: {
       type: import_sequelize2.DataTypes.STRING(100),
-      allowNull: true
+      allowNull: true,
+      unique: true
     }
   },
   {
     sequelize,
     tableName: "orders",
     timestamps: true,
-    underscored: true
+    underscored: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["tracking_code"]
+      }
+    ]
   }
 );
 var OrderItem = class extends import_sequelize2.Model {
@@ -546,7 +561,7 @@ var getAllCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC\u200C\u0647\u0627 \u0627\u0632 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -578,7 +593,7 @@ var getCategoryById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0632 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -593,7 +608,19 @@ var categories_default = router;
 var import_express2 = require("express");
 
 // server/controllers/productController.ts
+var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
 var import_sequelize4 = require("sequelize");
+function isRequestAdmin(req) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) return false;
+    const token = authHeader.split(" ")[1];
+    const decoded = import_jsonwebtoken.default.verify(token, JWT_SECRET);
+    return decoded && decoded.role === "admin";
+  } catch {
+    return false;
+  }
+}
 var getAllProducts = async (req, res) => {
   try {
     const {
@@ -605,6 +632,8 @@ var getAllProducts = async (req, res) => {
       in_stock,
       brand,
       sort,
+      include_inactive,
+      is_active,
       page = "1",
       limit = "12"
     } = req.query;
@@ -612,6 +641,14 @@ var getAllProducts = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 12));
     const offset = (pageNum - 1) * limitNum;
     const whereConditions = {};
+    const isAdmin = isRequestAdmin(req);
+    if (isAdmin && include_inactive === "true") {
+      if (is_active !== void 0) {
+        whereConditions.is_active = is_active === "true";
+      }
+    } else {
+      whereConditions.is_active = true;
+    }
     if (category_id) {
       whereConditions.category_id = Number(category_id);
     }
@@ -681,7 +718,7 @@ var getAllProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u0645\u062D\u0635\u0648\u0644\u0627\u062A \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -704,6 +741,13 @@ var getProductById = async (req, res) => {
       });
       return;
     }
+    if (!product.is_active && !isRequestAdmin(req)) {
+      res.status(404).json({
+        success: false,
+        message: `\u0645\u062D\u0635\u0648\u0644\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F \u06CC\u0627 \u062F\u0631 \u062D\u0627\u0644 \u062D\u0627\u0636\u0631 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0627\u0633\u062A`
+      });
+      return;
+    }
     res.json({
       success: true,
       data: product
@@ -713,219 +757,723 @@ var getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0645\u062D\u0635\u0648\u0644 \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 };
 
-// server/routes/products.ts
-var router2 = (0, import_express2.Router)();
-router2.get("/", getAllProducts);
-router2.get("/:id", getProductById);
-var products_default = router2;
+// server/controllers/adminController.ts
+var import_sequelize5 = require("sequelize");
 
-// server/routes/auth.ts
-var import_express3 = require("express");
-var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
-
-// server/controllers/authController.ts
-var import_bcryptjs = __toESM(require("bcryptjs"), 1);
-var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
-var register = async (req, res) => {
+// server/middleware/upload.ts
+var import_multer = __toESM(require("multer"), 1);
+var import_path2 = __toESM(require("path"), 1);
+var import_fs2 = __toESM(require("fs"), 1);
+var productsUploadDir = import_path2.default.join(process.cwd(), "public", "uploads", "products");
+var msdsUploadDir = import_path2.default.join(process.cwd(), "public", "uploads", "msds");
+[productsUploadDir, msdsUploadDir].forEach((dir) => {
+  if (!import_fs2.default.existsSync(dir)) {
+    import_fs2.default.mkdirSync(dir, { recursive: true });
+  }
+});
+var storage = import_multer.default.diskStorage({
+  destination: (req, file, cb) => {
+    if (file.fieldname === "msds_file" || file.mimetype === "application/pdf") {
+      cb(null, msdsUploadDir);
+    } else {
+      cb(null, productsUploadDir);
+    }
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = import_path2.default.extname(file.originalname).toLowerCase();
+    const safeBaseName = import_path2.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    cb(null, `${file.fieldname}-${safeBaseName}-${uniqueSuffix}${ext}`);
+  }
+});
+var fileFilter = (req, file, cb) => {
+  const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+  const allowedDocTypes = ["application/pdf"];
+  if (file.fieldname === "image" || file.fieldname === "image_file") {
+    if (allowedImageTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("\u0641\u0631\u0645\u062A \u062A\u0635\u0648\u06CC\u0631 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0641\u0642\u0637 \u0641\u0631\u0645\u062A\u200C\u0647\u0627\u06CC JPG\u060C PNG \u0648 WebP \u0645\u062C\u0627\u0632 \u0645\u06CC\u200C\u0628\u0627\u0634\u0646\u062F."));
+    }
+  } else if (file.fieldname === "msds_file") {
+    if (allowedDocTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("\u0641\u0631\u0645\u062A \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC MSDS \u0628\u0627\u06CC\u062F \u0641\u0627\u06CC\u0644 PDF \u0628\u0627\u0634\u062F."));
+    }
+  } else {
+    cb(null, true);
+  }
+};
+var isValidMediaUrl = (url) => {
+  if (typeof url !== "string" || !url.trim()) return false;
+  const trimmed = url.trim();
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("/uploads/") || trimmed.startsWith("uploads/");
+};
+var checkMagicBytes = (filePath, expectedCategory) => {
+  let fd = null;
   try {
-    const { phone_number, password, full_name, farm_location } = req.body;
-    const existingUser = await User.findOne({
-      where: { phone_number }
+    if (!import_fs2.default.existsSync(filePath)) return false;
+    fd = import_fs2.default.openSync(filePath, "r");
+    const buffer = Buffer.alloc(16);
+    const bytesRead = import_fs2.default.readSync(fd, buffer, 0, 16, 0);
+    if (bytesRead < 4) return false;
+    if (expectedCategory === "pdf") {
+      return buffer[0] === 37 && buffer[1] === 80 && buffer[2] === 68 && buffer[3] === 70 && buffer[4] === 45;
+    }
+    if (expectedCategory === "image") {
+      if (buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255) {
+        return true;
+      }
+      if (buffer[0] === 137 && buffer[1] === 80 && buffer[2] === 78 && buffer[3] === 71 && buffer[4] === 13 && buffer[5] === 10 && buffer[6] === 26 && buffer[7] === 10) {
+        return true;
+      }
+      if (buffer[0] === 82 && buffer[1] === 73 && buffer[2] === 70 && buffer[3] === 70 && bytesRead >= 12 && buffer.toString("ascii", 8, 12) === "WEBP") {
+        return true;
+      }
+      return false;
+    }
+    return false;
+  } catch (err) {
+    console.error(`\u26A0\uFE0F [Upload Security] Failed to read magic bytes for ${filePath}:`, err);
+    return false;
+  } finally {
+    if (fd !== null) {
+      try {
+        import_fs2.default.closeSync(fd);
+      } catch {
+      }
+    }
+  }
+};
+var buildAbsoluteUploadUrl = (req, relativePath) => {
+  if (!relativePath) return "";
+  if (relativePath.startsWith("http://") || relativePath.startsWith("https://")) {
+    return relativePath;
+  }
+  const cleanPath = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
+  const baseUrlEnv = process.env.BASE_URL || process.env.APP_URL || process.env.SERVER_URL || (process.env.NODE_ENV === "production" ? "https://api.shop.avinia.ir" : "");
+  if (baseUrlEnv) {
+    return `${baseUrlEnv.replace(/\/$/, "")}${cleanPath}`;
+  }
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  const host = req.get("host") || "localhost:3000";
+  return `${protocol}://${host}${cleanPath}`;
+};
+var upload = (0, import_multer.default)({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024
+    // 10MB absolute ceiling for MSDS documents
+  }
+});
+var rawProductUploadMiddleware = upload.fields([
+  { name: "image", maxCount: 1 },
+  { name: "image_file", maxCount: 1 },
+  { name: "msds_file", maxCount: 1 }
+]);
+var adminProductUpload = (req, res, next) => {
+  rawProductUploadMiddleware(req, res, (err) => {
+    if (err) {
+      return next(err);
+    }
+    const files = req.files;
+    const uploadedFileList = [];
+    if (files) {
+      Object.values(files).forEach((arr) => {
+        if (Array.isArray(arr)) {
+          uploadedFileList.push(...arr);
+        }
+      });
+    } else if (req.file) {
+      uploadedFileList.push(req.file);
+    }
+    const unlinkAllFiles = () => {
+      uploadedFileList.forEach((file) => {
+        try {
+          if (file.path && import_fs2.default.existsSync(file.path)) {
+            import_fs2.default.unlinkSync(file.path);
+          }
+        } catch (unlinkErr) {
+          console.error(`\u26A0\uFE0F Failed to remove rejected file ${file.path}:`, unlinkErr);
+        }
+      });
+    };
+    const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+    const MAX_MSDS_SIZE_BYTES = 10 * 1024 * 1024;
+    for (const file of uploadedFileList) {
+      const isMsds = file.fieldname === "msds_file" || file.mimetype === "application/pdf";
+      if (isMsds) {
+        if (file.size > MAX_MSDS_SIZE_BYTES) {
+          unlinkAllFiles();
+          res.status(413).json({
+            success: false,
+            message: "\u062D\u062C\u0645 \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC (MSDS) \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 (\u062D\u062F\u0627\u06A9\u062B\u0631 \u06F1\u06F0 \u0645\u06AF\u0627\u0628\u0627\u06CC\u062A) \u0627\u0633\u062A."
+          });
+          return;
+        }
+        if (!checkMagicBytes(file.path, "pdf")) {
+          unlinkAllFiles();
+          res.status(400).json({
+            success: false,
+            message: "\u0645\u062D\u062A\u0648\u0627\u06CC \u0641\u0627\u06CC\u0644 \u0628\u0631\u06AF\u0647 \u0627\u06CC\u0645\u0646\u06CC \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A. \u0627\u0645\u0636\u0627\u06CC \u0641\u0627\u06CC\u0644 \u0628\u0627 \u0641\u0631\u0645\u062A PDF \u0645\u0637\u0627\u0628\u0642\u062A \u0646\u062F\u0627\u0631\u062F."
+          });
+          return;
+        }
+      } else {
+        if (file.size > MAX_IMAGE_SIZE_BYTES) {
+          unlinkAllFiles();
+          res.status(413).json({
+            success: false,
+            message: "\u062D\u062C\u0645 \u062A\u0635\u0648\u06CC\u0631 \u0627\u0646\u062A\u062E\u0627\u0628\u06CC \u0628\u06CC\u0634 \u0627\u0632 \u0633\u0642\u0641 \u0645\u062C\u0627\u0632 (\u062D\u062F\u0627\u06A9\u062B\u0631 \u06F5 \u0645\u06AF\u0627\u0628\u0627\u06CC\u062A) \u0627\u0633\u062A."
+          });
+          return;
+        }
+        if (!checkMagicBytes(file.path, "image")) {
+          unlinkAllFiles();
+          res.status(400).json({
+            success: false,
+            message: "\u0645\u062D\u062A\u0648\u0627\u06CC \u0641\u0627\u06CC\u0644 \u062A\u0635\u0648\u06CC\u0631 \u0645\u0639\u062A\u0628\u0631 \u0646\u06CC\u0633\u062A. \u0627\u0645\u0636\u0627\u06CC \u0641\u0627\u06CC\u0644 \u0628\u0627 \u0641\u0631\u0645\u062A\u200C\u0647\u0627\u06CC \u0645\u062C\u0627\u0632 \u062A\u0635\u0648\u06CC\u0631\u06CC (JPG, PNG, WebP) \u0645\u0637\u0627\u0628\u0642\u062A \u0646\u062F\u0627\u0631\u062F."
+          });
+          return;
+        }
+      }
+    }
+    next();
+  });
+};
+
+// server/controllers/adminController.ts
+var getDashboardStats = async (req, res) => {
+  try {
+    const lowStockThreshold = Number(req.query.low_stock_threshold) || 10;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
+    const totalOrders = await Order.count();
+    const rawTotalRevenue = await Order.sum("total_price", {
+      where: {
+        status: {
+          [import_sequelize5.Op.ne]: "cancelled"
+        }
+      }
     });
-    if (existingUser) {
-      res.status(409).json({
+    const totalRevenue = rawTotalRevenue ? Number(rawTotalRevenue) : 0;
+    const lowStockCount = await Product.count({
+      where: {
+        stock: {
+          [import_sequelize5.Op.lte]: lowStockThreshold
+        },
+        is_active: true
+      }
+    });
+    const newUsersLast30Days = await User.count({
+      where: {
+        created_at: {
+          [import_sequelize5.Op.gte]: thirtyDaysAgo
+        }
+      }
+    });
+    const totalProducts = await Product.count({ where: { is_active: true } });
+    const totalUsers = await User.count();
+    const ordersByStatus = {
+      pending: await Order.count({ where: { status: "pending" } }),
+      confirmed: await Order.count({ where: { status: "confirmed" } }),
+      processing: await Order.count({ where: { status: "processing" } }),
+      shipped: await Order.count({ where: { status: "shipped" } }),
+      delivered: await Order.count({ where: { status: "delivered" } }),
+      cancelled: await Order.count({ where: { status: "cancelled" } })
+    };
+    const lowStockProducts = await Product.findAll({
+      where: {
+        stock: { [import_sequelize5.Op.lte]: lowStockThreshold },
+        is_active: true
+      },
+      attributes: ["id", "name", "stock", "price", "brand", "product_type"],
+      order: [["stock", "ASC"]],
+      limit: 6
+    });
+    res.json({
+      success: true,
+      data: {
+        total_orders: totalOrders,
+        total_revenue: totalRevenue,
+        low_stock_count: lowStockCount,
+        new_users_30d: newUsersLast30Days,
+        total_products: totalProducts,
+        total_users: totalUsers,
+        orders_by_status: ordersByStatus,
+        low_stock_products: lowStockProducts,
+        calculated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    });
+  } catch (error) {
+    console.error("Error in getDashboardStats:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u0645\u062D\u0627\u0633\u0628\u0647 \u0622\u0645\u0627\u0631 \u062F\u0627\u0634\u0628\u0648\u0631\u062F \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
+      ...devError(error)
+    });
+  }
+};
+var adminCreateProduct = async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      price,
+      stock,
+      category_id,
+      product_type,
+      required_permit_number,
+      brand,
+      package_size,
+      image_url: bodyImageUrl,
+      msds_file_url: bodyMsdsUrl
+    } = req.body;
+    if (!name || !price || !category_id || !product_type) {
+      res.status(400).json({
         success: false,
-        message: "\u0627\u06CC\u0646 \u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u0642\u0628\u0644\u0627\u064B \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u062B\u0628\u062A \u0634\u062F\u0647 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u0648\u0627\u0631\u062F \u0634\u0648\u06CC\u062F."
+        message: "\u0641\u06CC\u0644\u062F\u0647\u0627\u06CC \u0646\u0627\u0645 \u0645\u062D\u0635\u0648\u0644\u060C \u0642\u06CC\u0645\u062A\u060C \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0648 \u0646\u0648\u0639 \u0645\u062D\u0635\u0648\u0644 (\u06A9\u0648\u062F\u060C \u0633\u0645\u060C \u0628\u0630\u0631) \u0627\u0644\u0632\u0627\u0645\u06CC \u0647\u0633\u062A\u0646\u062F"
       });
       return;
     }
-    const saltRounds = 10;
-    const password_hash = await import_bcryptjs.default.hash(password, saltRounds);
-    const newUser = await User.create({
-      phone_number,
-      password_hash,
-      full_name,
-      farm_location: farm_location || null,
-      role: "customer"
+    if (bodyImageUrl && typeof bodyImageUrl === "string" && bodyImageUrl.trim() !== "") {
+      if (!isValidMediaUrl(bodyImageUrl)) {
+        res.status(400).json({
+          success: false,
+          message: "\u0622\u062F\u0631\u0633 \u062A\u0635\u0648\u06CC\u0631 \u0627\u0631\u0633\u0627\u0644\u06CC \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F."
+        });
+        return;
+      }
+    }
+    if (bodyMsdsUrl && typeof bodyMsdsUrl === "string" && bodyMsdsUrl.trim() !== "") {
+      if (!isValidMediaUrl(bodyMsdsUrl)) {
+        res.status(400).json({
+          success: false,
+          message: "\u0622\u062F\u0631\u0633 \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC MSDS \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F."
+        });
+        return;
+      }
+    }
+    const category = await Category.findByPk(category_id);
+    if (!category) {
+      res.status(400).json({
+        success: false,
+        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${category_id} \u062F\u0631 \u0633\u06CC\u0633\u062A\u0645 \u0645\u0648\u062C\u0648\u062F \u0646\u06CC\u0633\u062A`
+      });
+      return;
+    }
+    const files = req.files;
+    let finalImageUrl = bodyImageUrl || null;
+    let finalMsdsUrl = bodyMsdsUrl || null;
+    if (files) {
+      if (files["image"] && files["image"][0]) {
+        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image"][0].filename}`);
+      } else if (files["image_file"] && files["image_file"][0]) {
+        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image_file"][0].filename}`);
+      }
+      if (files["msds_file"] && files["msds_file"][0]) {
+        finalMsdsUrl = buildAbsoluteUploadUrl(req, `/uploads/msds/${files["msds_file"][0].filename}`);
+      }
+    } else if (req.file) {
+      if (req.file.mimetype === "application/pdf") {
+        finalMsdsUrl = buildAbsoluteUploadUrl(req, `/uploads/msds/${req.file.filename}`);
+      } else {
+        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${req.file.filename}`);
+      }
+    }
+    const newProduct = await Product.create({
+      name: name.trim(),
+      description: description ? description.trim() : null,
+      price: Number(price),
+      stock: Number(stock || 0),
+      category_id: Number(category_id),
+      product_type,
+      required_permit_number: required_permit_number ? required_permit_number.trim() : null,
+      brand: brand ? brand.trim() : null,
+      package_size: package_size ? package_size.trim() : null,
+      image_url: finalImageUrl,
+      msds_file_url: finalMsdsUrl,
+      is_active: true
     });
-    const token = import_jsonwebtoken.default.sign(
-      {
-        id: newUser.id,
-        phone_number: newUser.phone_number,
-        role: newUser.role
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    const createdProduct = await Product.findByPk(newProduct.id, {
+      include: [{ model: Category, as: "category" }]
+    });
     res.status(201).json({
       success: true,
-      message: "\u062D\u0633\u0627\u0628 \u06A9\u0627\u0631\u0628\u0631\u06CC \u06A9\u0634\u0627\u0648\u0631\u0632 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u0627\u06CC\u062C\u0627\u062F \u0634\u062F",
-      token,
-      user: {
-        id: newUser.id,
-        phone_number: newUser.phone_number,
-        full_name: newUser.full_name,
-        farm_location: newUser.farm_location,
-        role: newUser.role,
-        created_at: newUser.created_at,
-        updated_at: newUser.updated_at
+      message: "\u0645\u062D\u0635\u0648\u0644 \u062C\u062F\u06CC\u062F \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u062B\u0628\u062A \u0634\u062F",
+      data: createdProduct
+    });
+  } catch (error) {
+    console.error("Error in adminCreateProduct:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062B\u0628\u062A \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
+      ...devError(error)
+    });
+  }
+};
+var adminUpdateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findByPk(id);
+    if (!product) {
+      res.status(404).json({
+        success: false,
+        message: `\u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+      });
+      return;
+    }
+    const {
+      name,
+      description,
+      price,
+      stock,
+      category_id,
+      product_type,
+      required_permit_number,
+      brand,
+      package_size,
+      is_active,
+      image_url: bodyImageUrl,
+      msds_file_url: bodyMsdsUrl
+    } = req.body;
+    if (category_id && category_id !== product.category_id) {
+      const categoryExists = await Category.findByPk(category_id);
+      if (!categoryExists) {
+        res.status(400).json({
+          success: false,
+          message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${category_id} \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+        });
+        return;
+      }
+      product.category_id = Number(category_id);
+    }
+    if (name !== void 0) product.name = name.trim();
+    if (description !== void 0) product.description = description ? description.trim() : null;
+    if (price !== void 0) product.price = Number(price);
+    if (stock !== void 0) product.stock = Number(stock);
+    if (product_type !== void 0) product.product_type = product_type;
+    if (required_permit_number !== void 0) product.required_permit_number = required_permit_number ? required_permit_number.trim() : null;
+    if (brand !== void 0) product.brand = brand ? brand.trim() : null;
+    if (package_size !== void 0) product.package_size = package_size ? package_size.trim() : null;
+    if (is_active !== void 0) product.is_active = is_active === "true" || is_active === true;
+    if (bodyImageUrl !== void 0 && bodyImageUrl !== null && typeof bodyImageUrl === "string" && bodyImageUrl.trim() !== "") {
+      if (!isValidMediaUrl(bodyImageUrl)) {
+        res.status(400).json({
+          success: false,
+          message: "\u0622\u062F\u0631\u0633 \u062A\u0635\u0648\u06CC\u0631 \u0627\u0631\u0633\u0627\u0644\u06CC \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F."
+        });
+        return;
+      }
+      product.image_url = bodyImageUrl.trim();
+    }
+    if (bodyMsdsUrl !== void 0 && bodyMsdsUrl !== null && typeof bodyMsdsUrl === "string" && bodyMsdsUrl.trim() !== "") {
+      if (!isValidMediaUrl(bodyMsdsUrl)) {
+        res.status(400).json({
+          success: false,
+          message: "\u0622\u062F\u0631\u0633 \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC MSDS \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F."
+        });
+        return;
+      }
+      product.msds_file_url = bodyMsdsUrl.trim();
+    }
+    const files = req.files;
+    if (files) {
+      if (files["image"] && files["image"][0]) {
+        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image"][0].filename}`);
+      } else if (files["image_file"] && files["image_file"][0]) {
+        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image_file"][0].filename}`);
+      }
+      if (files["msds_file"] && files["msds_file"][0]) {
+        product.msds_file_url = buildAbsoluteUploadUrl(req, `/uploads/msds/${files["msds_file"][0].filename}`);
+      }
+    } else if (req.file) {
+      if (req.file.mimetype === "application/pdf") {
+        product.msds_file_url = buildAbsoluteUploadUrl(req, `/uploads/msds/${req.file.filename}`);
+      } else {
+        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${req.file.filename}`);
+      }
+    }
+    await product.save();
+    const updatedProduct = await Product.findByPk(id, {
+      include: [{ model: Category, as: "category" }]
+    });
+    res.json({
+      success: true,
+      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0634\u062F",
+      data: updatedProduct
+    });
+  } catch (error) {
+    console.error("Error in adminUpdateProduct:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
+      ...devError(error)
+    });
+  }
+};
+var adminDeleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findByPk(id);
+    if (!product) {
+      res.status(404).json({
+        success: false,
+        message: `\u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+      });
+      return;
+    }
+    const orderItemsCount = await OrderItem.count({
+      where: { product_id: id }
+    });
+    if (orderItemsCount > 0) {
+      product.is_active = false;
+      await product.save();
+      res.json({
+        success: true,
+        action: "deactivated",
+        message: `\u0645\u062D\u0635\u0648\u0644 "${product.name}" \u062F\u0631 ${orderItemsCount} \u0633\u0637\u0631 \u0627\u0632 \u0633\u0641\u0627\u0631\u0634\u200C\u0647\u0627\u06CC \u067E\u06CC\u0634\u06CC\u0646 \u0645\u0634\u062A\u0631\u06CC\u0627\u0646 \u0648\u062C\u0648\u062F \u062F\u0627\u0631\u062F. \u0628\u0647 \u0645\u0646\u0638\u0648\u0631 \u062D\u0641\u0638 \u06CC\u06A9\u067E\u0627\u0631\u0686\u06AF\u06CC \u0633\u0648\u0627\u0628\u0642 \u062D\u0633\u0627\u0628\u062F\u0627\u0631\u06CC \u0648 \u0633\u0641\u0627\u0631\u0634\u0627\u062A\u060C \u0627\u06CC\u0646 \u06A9\u0627\u0644\u0627 \u062D\u0630\u0641 \u0641\u06CC\u0632\u06CC\u06A9\u06CC \u0646\u0634\u062F \u0648 \u0648\u0636\u0639\u06CC\u062A \u0622\u0646 \u0628\u0647 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 (is_active = false) \u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627\u0641\u062A.`,
+        data: {
+          id: product.id,
+          name: product.name,
+          is_active: false,
+          order_references: orderItemsCount
+        }
+      });
+      return;
+    }
+    await product.destroy();
+    res.json({
+      success: true,
+      action: "deleted",
+      message: `\u0645\u062D\u0635\u0648\u0644 "${product.name}" \u0628\u0647 \u0637\u0648\u0631 \u06A9\u0627\u0645\u0644 \u0627\u0632 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u062D\u0630\u0641 \u06AF\u0631\u062F\u06CC\u062F.`,
+      data: {
+        id: Number(id)
       }
     });
   } catch (error) {
-    console.error("\u274C Error during user registration:", error);
+    console.error("Error in adminDeleteProduct:", error);
     res.status(500).json({
       success: false,
-      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u062B\u0628\u062A\u200C\u0646\u0627\u0645 \u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062D\u0630\u0641 \u06CC\u0627 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644\u200C\u0633\u0627\u0632\u06CC \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
+      ...devError(error)
     });
   }
 };
-var login = async (req, res) => {
+var adminCreateCategory = async (req, res) => {
   try {
-    const { phone_number, password } = req.body;
-    const user = await User.findOne({
-      where: { phone_number }
+    const { name, description } = req.body;
+    if (!name || !name.trim()) {
+      res.status(400).json({
+        success: false,
+        message: "\u0646\u0627\u0645 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
+      });
+      return;
+    }
+    const existing = await Category.findOne({ where: { name: name.trim() } });
+    if (existing) {
+      res.status(400).json({
+        success: false,
+        message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0627\u06CC\u0646 \u0646\u0627\u0645 \u0627\u0632 \u0642\u0628\u0644 \u0648\u062C\u0648\u062F \u062F\u0627\u0631\u062F"
+      });
+      return;
+    }
+    const category = await Category.create({
+      name: name.trim(),
+      description: description ? description.trim() : null
     });
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        message: "\u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u06CC\u0627 \u0631\u0645\u0632 \u0639\u0628\u0648\u0631 \u0627\u0634\u062A\u0628\u0627\u0647 \u0627\u0633\u062A"
-      });
-      return;
-    }
-    const isPasswordValid = await import_bcryptjs.default.compare(password, user.password_hash);
-    if (!isPasswordValid) {
-      res.status(401).json({
-        success: false,
-        message: "\u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u06CC\u0627 \u0631\u0645\u0632 \u0639\u0628\u0648\u0631 \u0627\u0634\u062A\u0628\u0627\u0647 \u0627\u0633\u062A"
-      });
-      return;
-    }
-    const token = import_jsonwebtoken.default.sign(
-      {
-        id: user.id,
-        phone_number: user.phone_number,
-        role: user.role
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-    res.status(200).json({
+    res.status(201).json({
       success: true,
-      message: "\u0648\u0631\u0648\u062F \u0645\u0648\u0641\u0642\u06CC\u062A\u200C\u0622\u0645\u06CC\u0632 \u0628\u0648\u062F",
-      token,
-      user: {
-        id: user.id,
-        phone_number: user.phone_number,
-        full_name: user.full_name,
-        farm_location: user.farm_location,
-        role: user.role,
-        created_at: user.created_at,
-        updated_at: user.updated_at
+      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u062C\u062F\u06CC\u062F \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u06CC\u062C\u0627\u062F \u0634\u062F",
+      data: category
+    });
+  } catch (error) {
+    console.error("Error in adminCreateCategory:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062B\u0628\u062A \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
+      ...devError(error)
+    });
+  }
+};
+var adminUpdateCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    const category = await Category.findByPk(id);
+    if (!category) {
+      res.status(404).json({
+        success: false,
+        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+      });
+      return;
+    }
+    if (name !== void 0) category.name = name.trim();
+    if (description !== void 0) category.description = description ? description.trim() : null;
+    await category.save();
+    res.json({
+      success: true,
+      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0634\u062F",
+      data: category
+    });
+  } catch (error) {
+    console.error("Error in adminUpdateCategory:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC",
+      ...devError(error)
+    });
+  }
+};
+var adminDeleteCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = await Category.findByPk(id);
+    if (!category) {
+      res.status(404).json({
+        success: false,
+        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+      });
+      return;
+    }
+    const linkedProductsCount = await Product.count({
+      where: { category_id: id }
+    });
+    if (linkedProductsCount > 0) {
+      res.status(400).json({
+        success: false,
+        message: `\u0627\u0645\u06A9\u0627\u0646 \u062D\u0630\u0641 \u0627\u06CC\u0646 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0648\u062C\u0648\u062F \u0646\u062F\u0627\u0631\u062F\u061B \u062A\u0639\u062F\u0627\u062F ${linkedProductsCount} \u0645\u062D\u0635\u0648\u0644 \u0628\u0647 \u0622\u0646 \u0645\u062A\u0635\u0644 \u0627\u0633\u062A. \u0627\u0628\u062A\u062F\u0627 \u0645\u062D\u0635\u0648\u0644\u0627\u062A \u0631\u0627 \u0645\u0646\u062A\u0642\u0644 \u06CC\u0627 \u062D\u0630\u0641 \u06A9\u0646\u06CC\u062F.`
+      });
+      return;
+    }
+    await category.destroy();
+    res.json({
+      success: true,
+      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062D\u0630\u0641 \u0634\u062F",
+      data: { id: Number(id) }
+    });
+  } catch (error) {
+    console.error("Error in adminDeleteCategory:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062D\u0630\u0641 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
+      ...devError(error)
+    });
+  }
+};
+var adminGetAllOrders = async (req, res) => {
+  try {
+    const { status, search, page = "1", limit = "15" } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 15));
+    const offset = (pageNum - 1) * limitNum;
+    const whereConditions = {};
+    if (status && status !== "all") {
+      whereConditions.status = status;
+    }
+    if (search) {
+      const searchTerm = String(search).trim();
+      whereConditions[import_sequelize5.Op.or] = [
+        { tracking_code: { [import_sequelize5.Op.like]: `%${searchTerm}%` } },
+        { shipping_address: { [import_sequelize5.Op.like]: `%${searchTerm}%` } }
+      ];
+    }
+    const { count, rows } = await Order.findAndCountAll({
+      where: whereConditions,
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "full_name", "phone_number", "farm_location"]
+        },
+        {
+          model: OrderItem,
+          as: "items",
+          include: [
+            {
+              model: Product,
+              as: "product",
+              attributes: ["id", "name", "product_type", "brand", "image_url"]
+            }
+          ]
+        }
+      ],
+      order: [["created_at", "DESC"]],
+      limit: limitNum,
+      offset,
+      distinct: true
+    });
+    res.json({
+      success: true,
+      total_count: count,
+      total_pages: Math.ceil(count / limitNum),
+      current_page: pageNum,
+      limit: limitNum,
+      data: rows
+    });
+  } catch (error) {
+    console.error("Error in adminGetAllOrders:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u0633\u0641\u0627\u0631\u0634\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u0628\u0631\u0627\u0646 \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
+      ...devError(error)
+    });
+  }
+};
+var adminUpdateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
+    if (!status || !validStatuses.includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: `\u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0645\u0642\u0627\u062F\u06CC\u0631 \u0645\u062C\u0627\u0632: ${validStatuses.join("\u060C ")}`
+      });
+      return;
+    }
+    const order = await Order.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "full_name", "phone_number"]
+        }
+      ]
+    });
+    if (!order) {
+      res.status(404).json({
+        success: false,
+        message: `\u0633\u0641\u0627\u0631\u0634 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
+      });
+      return;
+    }
+    const oldStatus = order.status;
+    order.status = status;
+    await order.save();
+    res.json({
+      success: true,
+      message: `\u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 ${order.tracking_code} \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u0632 "${oldStatus}" \u0628\u0647 "${status}" \u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627\u0641\u062A`,
+      data: {
+        id: order.id,
+        tracking_code: order.tracking_code,
+        old_status: oldStatus,
+        new_status: order.status,
+        updated_at: order.updated_at
       }
     });
   } catch (error) {
-    console.error("\u274C Error during user login:", error);
+    console.error("Error in adminUpdateOrderStatus:", error);
     res.status(500).json({
       success: false,
-      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u0628\u0631\u0631\u0633\u06CC \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0648\u0631\u0648\u062F",
-      error: error.message
-    });
-  }
-};
-var getMe = async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      res.status(401).json({
-        success: false,
-        message: "\u06A9\u0627\u0631\u0628\u0631 \u0627\u062D\u0631\u0627\u0632 \u0647\u0648\u06CC\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A"
-      });
-      return;
-    }
-    const user = await User.findByPk(req.user.id, {
-      attributes: { exclude: ["password_hash"] }
-    });
-    if (!user) {
-      res.status(404).json({
-        success: false,
-        message: "\u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u06CC\u0627\u0641\u062A \u0646\u0634\u062F"
-      });
-      return;
-    }
-    res.status(200).json({
-      success: true,
-      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u06A9\u0627\u0631\u0628\u0631 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u062F\u0631\u06CC\u0627\u0641\u062A \u0634\u062F",
-      user: user.toJSON()
-    });
-  } catch (error) {
-    console.error("\u274C Error fetching user profile:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u06A9\u0627\u0631\u0628\u0631",
-      error: error.message
-    });
-  }
-};
-var updateProfile = async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      res.status(401).json({
-        success: false,
-        message: "\u06A9\u0627\u0631\u0628\u0631 \u0627\u062D\u0631\u0627\u0632 \u0647\u0648\u06CC\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A"
-      });
-      return;
-    }
-    const { full_name, farm_location } = req.body;
-    const user = await User.findByPk(req.user.id);
-    if (!user) {
-      res.status(404).json({
-        success: false,
-        message: "\u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u06CC\u0627\u0641\u062A \u0646\u0634\u062F"
-      });
-      return;
-    }
-    await user.update({
-      full_name: full_name !== void 0 ? full_name : user.full_name,
-      farm_location: farm_location !== void 0 ? farm_location : user.farm_location
-    });
-    const updatedUser = await User.findByPk(req.user.id, {
-      attributes: { exclude: ["password_hash"] }
-    });
-    res.status(200).json({
-      success: true,
-      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u067E\u0631\u0648\u0641\u0627\u06CC\u0644 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u0630\u062E\u06CC\u0631\u0647 \u0634\u062F",
-      user: updatedUser?.toJSON()
-    });
-  } catch (error) {
-    console.error("\u274C Error updating profile in MySQL:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u0648\u06CC\u0631\u0627\u06CC\u0634 \u067E\u0631\u0648\u0641\u0627\u06CC\u0644",
-      error: error.message
-    });
-  }
-};
-var listUsers = async (_req, res) => {
-  try {
-    const users = await User.findAll({
-      attributes: { exclude: ["password_hash"] },
-      order: [["id", "DESC"]]
-    });
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      users
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u06A9\u0627\u0631\u0628\u0631\u0627\u0646",
-      error: error.message
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062A\u063A\u06CC\u06CC\u0631 \u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
+      ...devError(error)
     });
   }
 };
@@ -967,7 +1515,7 @@ var authenticateJWT = async (req, res, next) => {
     res.status(401).json({
       success: false,
       message: "\u062A\u0648\u06A9\u0646 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u06CC\u0627 \u0645\u0646\u0642\u0636\u06CC \u0634\u062F\u0647 \u0627\u0633\u062A",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -995,7 +1543,266 @@ var requireAdmin = async (req, res, next) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0631\u0631\u0633\u06CC \u0633\u0637\u062D \u062F\u0633\u062A\u0631\u0633\u06CC \u0645\u062F\u06CC\u0631\u06CC\u062A \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
+    });
+  }
+};
+
+// server/middleware/rateLimiter.ts
+var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
+var loginRateLimiter = (0, import_express_rate_limit.default)({
+  windowMs: 15 * 60 * 1e3,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    default: false
+  },
+  message: {
+    success: false,
+    message: "\u062A\u0639\u062F\u0627\u062F \u062A\u0644\u0627\u0634\u200C\u0647\u0627\u06CC \u0648\u0631\u0648\u062F \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u06F1\u06F5 \u062F\u0642\u06CC\u0642\u0647 \u062F\u06CC\u06AF\u0631 \u0645\u062C\u062F\u062F\u0627\u064B \u0627\u0645\u062A\u062D\u0627\u0646 \u06A9\u0646\u06CC\u062F."
+  }
+});
+var registerRateLimiter = (0, import_express_rate_limit.default)({
+  windowMs: 15 * 60 * 1e3,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    default: false
+  },
+  message: {
+    success: false,
+    message: "\u062A\u0639\u062F\u0627\u062F \u062F\u0631\u062E\u0648\u0627\u0633\u062A\u200C\u0647\u0627\u06CC \u062B\u0628\u062A\u200C\u0646\u0627\u0645 \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u06F1\u06F5 \u062F\u0642\u06CC\u0642\u0647 \u062F\u06CC\u06AF\u0631 \u0645\u062C\u062F\u062F\u0627\u064B \u062A\u0644\u0627\u0634 \u06A9\u0646\u06CC\u062F."
+  }
+});
+var uploadRateLimiter = (0, import_express_rate_limit.default)({
+  windowMs: 15 * 60 * 1e3,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    default: false
+  },
+  message: {
+    success: false,
+    message: "\u062A\u0639\u062F\u0627\u062F \u062F\u0631\u062E\u0648\u0627\u0633\u062A\u200C\u0647\u0627\u06CC \u0622\u067E\u0644\u0648\u062F \u0641\u0627\u06CC\u0644 \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u06A9\u0645\u06CC \u0628\u0639\u062F \u0645\u062C\u062F\u062F\u0627\u064B \u062A\u0644\u0627\u0634 \u0641\u0631\u0645\u0627\u06CC\u06CC\u062F."
+  }
+});
+
+// server/routes/products.ts
+var router2 = (0, import_express2.Router)();
+router2.get("/", getAllProducts);
+router2.get("/:id", getProductById);
+router2.post("/", authenticateToken, requireAdmin, uploadRateLimiter, adminProductUpload, adminCreateProduct);
+router2.put("/:id", authenticateToken, requireAdmin, uploadRateLimiter, adminProductUpload, adminUpdateProduct);
+router2.delete("/:id", authenticateToken, requireAdmin, adminDeleteProduct);
+var products_default = router2;
+
+// server/routes/auth.ts
+var import_express3 = require("express");
+
+// server/controllers/authController.ts
+var import_bcryptjs = __toESM(require("bcryptjs"), 1);
+var import_jsonwebtoken3 = __toESM(require("jsonwebtoken"), 1);
+var register = async (req, res) => {
+  try {
+    const { phone_number, password, full_name, farm_location } = req.body;
+    const existingUser = await User.findOne({
+      where: { phone_number }
+    });
+    if (existingUser) {
+      res.status(409).json({
+        success: false,
+        message: "\u0627\u06CC\u0646 \u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u0642\u0628\u0644\u0627\u064B \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u062B\u0628\u062A \u0634\u062F\u0647 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u0648\u0627\u0631\u062F \u0634\u0648\u06CC\u062F."
+      });
+      return;
+    }
+    const saltRounds = 10;
+    const password_hash = await import_bcryptjs.default.hash(password, saltRounds);
+    const newUser = await User.create({
+      phone_number,
+      password_hash,
+      full_name,
+      farm_location: farm_location || null,
+      role: "customer"
+    });
+    const token = import_jsonwebtoken3.default.sign(
+      {
+        id: newUser.id,
+        phone_number: newUser.phone_number,
+        role: newUser.role
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    res.status(201).json({
+      success: true,
+      message: "\u062D\u0633\u0627\u0628 \u06A9\u0627\u0631\u0628\u0631\u06CC \u06A9\u0634\u0627\u0648\u0631\u0632 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u0627\u06CC\u062C\u0627\u062F \u0634\u062F",
+      token,
+      user: {
+        id: newUser.id,
+        phone_number: newUser.phone_number,
+        full_name: newUser.full_name,
+        farm_location: newUser.farm_location,
+        role: newUser.role,
+        created_at: newUser.created_at,
+        updated_at: newUser.updated_at
+      }
+    });
+  } catch (error) {
+    console.error("\u274C Error during user registration:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u062B\u0628\u062A\u200C\u0646\u0627\u0645 \u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
+      ...devError(error)
+    });
+  }
+};
+var login = async (req, res) => {
+  try {
+    const { phone_number, password } = req.body;
+    const user = await User.findOne({
+      where: { phone_number }
+    });
+    if (!user) {
+      res.status(401).json({
+        success: false,
+        message: "\u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u06CC\u0627 \u0631\u0645\u0632 \u0639\u0628\u0648\u0631 \u0627\u0634\u062A\u0628\u0627\u0647 \u0627\u0633\u062A"
+      });
+      return;
+    }
+    const isPasswordValid = await import_bcryptjs.default.compare(password, user.password_hash);
+    if (!isPasswordValid) {
+      res.status(401).json({
+        success: false,
+        message: "\u0634\u0645\u0627\u0631\u0647 \u0645\u0648\u0628\u0627\u06CC\u0644 \u06CC\u0627 \u0631\u0645\u0632 \u0639\u0628\u0648\u0631 \u0627\u0634\u062A\u0628\u0627\u0647 \u0627\u0633\u062A"
+      });
+      return;
+    }
+    const token = import_jsonwebtoken3.default.sign(
+      {
+        id: user.id,
+        phone_number: user.phone_number,
+        role: user.role
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    res.status(200).json({
+      success: true,
+      message: "\u0648\u0631\u0648\u062F \u0645\u0648\u0641\u0642\u06CC\u062A\u200C\u0622\u0645\u06CC\u0632 \u0628\u0648\u062F",
+      token,
+      user: {
+        id: user.id,
+        phone_number: user.phone_number,
+        full_name: user.full_name,
+        farm_location: user.farm_location,
+        role: user.role,
+        created_at: user.created_at,
+        updated_at: user.updated_at
+      }
+    });
+  } catch (error) {
+    console.error("\u274C Error during user login:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u0628\u0631\u0631\u0633\u06CC \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0648\u0631\u0648\u062F",
+      ...devError(error)
+    });
+  }
+};
+var getMe = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      res.status(401).json({
+        success: false,
+        message: "\u06A9\u0627\u0631\u0628\u0631 \u0627\u062D\u0631\u0627\u0632 \u0647\u0648\u06CC\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A"
+      });
+      return;
+    }
+    const user = await User.findByPk(req.user.id, {
+      attributes: { exclude: ["password_hash"] }
+    });
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "\u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u06CC\u0627\u0641\u062A \u0646\u0634\u062F"
+      });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u06A9\u0627\u0631\u0628\u0631 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u062F\u0631\u06CC\u0627\u0641\u062A \u0634\u062F",
+      user: user.toJSON()
+    });
+  } catch (error) {
+    console.error("\u274C Error fetching user profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u06A9\u0627\u0631\u0628\u0631",
+      ...devError(error)
+    });
+  }
+};
+var updateProfile = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      res.status(401).json({
+        success: false,
+        message: "\u06A9\u0627\u0631\u0628\u0631 \u0627\u062D\u0631\u0627\u0632 \u0647\u0648\u06CC\u062A \u0646\u0634\u062F\u0647 \u0627\u0633\u062A"
+      });
+      return;
+    }
+    const { full_name, farm_location } = req.body;
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "\u06A9\u0627\u0631\u0628\u0631 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u06CC\u0627\u0641\u062A \u0646\u0634\u062F"
+      });
+      return;
+    }
+    await user.update({
+      full_name: full_name !== void 0 ? full_name : user.full_name,
+      farm_location: farm_location !== void 0 ? farm_location : user.farm_location
+    });
+    const updatedUser = await User.findByPk(req.user.id, {
+      attributes: { exclude: ["password_hash"] }
+    });
+    res.status(200).json({
+      success: true,
+      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u067E\u0631\u0648\u0641\u0627\u06CC\u0644 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 MySQL \u0630\u062E\u06CC\u0631\u0647 \u0634\u062F",
+      user: updatedUser?.toJSON()
+    });
+  } catch (error) {
+    console.error("\u274C Error updating profile in MySQL:", error);
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627\u06CC \u0633\u0631\u0648\u0631 \u062F\u0631 \u0648\u06CC\u0631\u0627\u06CC\u0634 \u067E\u0631\u0648\u0641\u0627\u06CC\u0644",
+      ...devError(error)
+    });
+  }
+};
+var listUsers = async (_req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: { exclude: ["password_hash"] },
+      order: [["id", "DESC"]]
+    });
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      users
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u06A9\u0627\u0631\u0628\u0631\u0627\u0646",
+      ...devError(error)
     });
   }
 };
@@ -1046,9 +1853,9 @@ var createProductSchema = import_joi.default.object({
     "any.required": "\u0646\u0627\u0645 \u0645\u062D\u0635\u0648\u0644 \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
   }),
   description: import_joi.default.string().trim().allow("", null).optional(),
-  price: import_joi.default.number().positive().min(0).required().messages({
+  price: import_joi.default.number().positive().required().messages({
     "number.base": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627\u06CC\u062F \u0639\u062F\u062F \u0645\u0639\u062A\u0628\u0631 \u0628\u0627\u0634\u062F",
-    "number.min": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0646\u0645\u06CC\u200C\u062A\u0648\u0627\u0646\u062F \u0645\u0646\u0641\u06CC \u0628\u0627\u0634\u062F",
+    "number.positive": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627\u06CC\u062F \u0628\u0632\u0631\u06AF\u062A\u0631 \u0627\u0632 \u0635\u0641\u0631 \u0628\u0627\u0634\u062F",
     "any.required": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0647 \u062A\u0648\u0645\u0627\u0646 \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
   }),
   stock: import_joi.default.number().integer().min(0).default(0).messages({
@@ -1058,26 +1865,37 @@ var createProductSchema = import_joi.default.object({
     "number.base": "\u0634\u0646\u0627\u0633\u0647 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A",
     "any.required": "\u0634\u0646\u0627\u0633\u0647 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
   }),
-  image_url: import_joi.default.string().trim().allow("", null).optional(),
+  image_url: import_joi.default.string().trim().pattern(/^(https?:\/\/|\/?uploads\/)/i).allow("", null).max(500).optional().messages({
+    "string.pattern.base": "\u0622\u062F\u0631\u0633 \u062A\u0635\u0648\u06CC\u0631 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F"
+  }),
   product_type: import_joi.default.string().valid("\u06A9\u0648\u062F", "\u0633\u0645", "\u0628\u0630\u0631").required().messages({
     "any.only": "\u0646\u0648\u0639 \u0645\u062D\u0635\u0648\u0644 \u0628\u0627\u06CC\u062F \u06CC\u06A9\u06CC \u0627\u0632 \u0645\u0648\u0627\u0631\u062F \xAB\u06A9\u0648\u062F\xBB\u060C \xAB\u0633\u0645\xBB \u06CC\u0627 \xAB\u0628\u0630\u0631\xBB \u0628\u0627\u0634\u062F",
     "any.required": "\u0646\u0648\u0639 \u0645\u062D\u0635\u0648\u0644 (\u06A9\u0648\u062F\u060C \u0633\u0645\u060C \u0628\u0630\u0631) \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
   }),
   required_permit_number: import_joi.default.string().trim().allow("", null).max(100).optional(),
-  msds_file_url: import_joi.default.string().trim().allow("", null).max(500).optional(),
+  msds_file_url: import_joi.default.string().trim().pattern(/^(https?:\/\/|\/?uploads\/)/i).allow("", null).max(500).optional().messages({
+    "string.pattern.base": "\u0622\u062F\u0631\u0633 \u0628\u0631\u06AF\u0647 \u0627\u06CC\u0645\u0646\u06CC MSDS \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F"
+  }),
   brand: import_joi.default.string().trim().allow("", null).max(120).optional(),
   package_size: import_joi.default.string().trim().allow("", null).max(100).optional()
 });
 var updateProductSchema = import_joi.default.object({
   name: import_joi.default.string().trim().min(2).max(255).optional(),
   description: import_joi.default.string().trim().allow("", null).optional(),
-  price: import_joi.default.number().positive().min(0).optional(),
+  price: import_joi.default.number().positive().optional().messages({
+    "number.base": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627\u06CC\u062F \u0639\u062F\u062F \u0645\u0639\u062A\u0628\u0631 \u0628\u0627\u0634\u062F",
+    "number.positive": "\u0642\u06CC\u0645\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627\u06CC\u062F \u0628\u0632\u0631\u06AF\u062A\u0631 \u0627\u0632 \u0635\u0641\u0631 \u0628\u0627\u0634\u062F"
+  }),
   stock: import_joi.default.number().integer().min(0).optional(),
   category_id: import_joi.default.number().integer().positive().optional(),
-  image_url: import_joi.default.string().trim().allow("", null).optional(),
+  image_url: import_joi.default.string().trim().pattern(/^(https?:\/\/|\/?uploads\/)/i).allow("", null).max(500).optional().messages({
+    "string.pattern.base": "\u0622\u062F\u0631\u0633 \u062A\u0635\u0648\u06CC\u0631 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F"
+  }),
   product_type: import_joi.default.string().valid("\u06A9\u0648\u062F", "\u0633\u0645", "\u0628\u0630\u0631").optional(),
   required_permit_number: import_joi.default.string().trim().allow("", null).max(100).optional(),
-  msds_file_url: import_joi.default.string().trim().allow("", null).max(500).optional(),
+  msds_file_url: import_joi.default.string().trim().pattern(/^(https?:\/\/|\/?uploads\/)/i).allow("", null).max(500).optional().messages({
+    "string.pattern.base": "\u0622\u062F\u0631\u0633 \u0628\u0631\u06AF\u0647 \u0627\u06CC\u0645\u0646\u06CC MSDS \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0622\u062F\u0631\u0633 \u0628\u0627\u06CC\u062F \u0628\u0627 http:// \u06CC\u0627 https:// \u06CC\u0627 /uploads/ \u0634\u0631\u0648\u0639 \u0634\u0648\u062F"
+  }),
   brand: import_joi.default.string().trim().allow("", null).max(120).optional(),
   package_size: import_joi.default.string().trim().allow("", null).max(100).optional()
 }).min(1);
@@ -1116,21 +1934,7 @@ var updateProfileSchema = import_joi.default.object({
 
 // server/routes/auth.ts
 var router3 = (0, import_express3.Router)();
-var loginRateLimiter = (0, import_express_rate_limit.default)({
-  windowMs: 15 * 60 * 1e3,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: {
-    xForwardedForHeader: false,
-    default: false
-  },
-  message: {
-    success: false,
-    message: "\u062A\u0639\u062F\u0627\u062F \u062A\u0644\u0627\u0634\u200C\u0647\u0627\u06CC \u0648\u0631\u0648\u062F \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A. \u0644\u0637\u0641\u0627\u064B \u06F1\u06F5 \u062F\u0642\u06CC\u0642\u0647 \u062F\u06CC\u06AF\u0631 \u0645\u062C\u062F\u062F\u0627\u064B \u0627\u0645\u062A\u062D\u0627\u0646 \u06A9\u0646\u06CC\u062F."
-  }
-});
-router3.post("/register", validate(registerUserSchema), register);
+router3.post("/register", registerRateLimiter, validate(registerUserSchema), register);
 router3.post("/login", loginRateLimiter, validate(loginUserSchema), login);
 router3.get("/me", authenticateToken, getMe);
 router3.put("/profile", authenticateToken, validate(updateProfileSchema), updateProfile);
@@ -1235,7 +2039,7 @@ var getCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u0648\u0627\u06A9\u0634\u06CC \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0633\u0628\u062F \u062E\u0631\u06CC\u062F \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1271,6 +2075,13 @@ var addToCart = async (req, res) => {
       res.status(404).json({
         success: false,
         message: "\u0645\u062D\u0635\u0648\u0644 \u0645\u0648\u0631\u062F \u0646\u0638\u0631 \u062F\u0631 \u0627\u0646\u0628\u0627\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u06CC\u0627\u0641\u062A \u0646\u0634\u062F"
+      });
+      return;
+    }
+    if (!product.is_active) {
+      res.status(400).json({
+        success: false,
+        message: `\u0645\u062D\u0635\u0648\u0644 \xAB${product.name}\xBB \u062F\u0631 \u062D\u0627\u0644 \u062D\u0627\u0636\u0631 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0627\u0633\u062A \u0648 \u0627\u0645\u06A9\u0627\u0646 \u0627\u0641\u0632\u0648\u062F\u0646 \u0622\u0646 \u0628\u0647 \u0633\u0628\u062F \u062E\u0631\u06CC\u062F \u0648\u062C\u0648\u062F \u0646\u062F\u0627\u0631\u062F`
       });
       return;
     }
@@ -1322,7 +2133,7 @@ var addToCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062B\u0628\u062A \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u0633\u0628\u062F \u062E\u0631\u06CC\u062F \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1372,6 +2183,13 @@ var updateCartItem = async (req, res) => {
       });
       return;
     }
+    if (!product.is_active) {
+      res.status(400).json({
+        success: false,
+        message: `\u0645\u062D\u0635\u0648\u0644 \xAB${product.name}\xBB \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0634\u062F\u0647 \u0627\u0633\u062A \u0648 \u0627\u0645\u06A9\u0627\u0646 \u0648\u06CC\u0631\u0627\u06CC\u0634 \u0622\u0646 \u062F\u0631 \u0633\u0628\u062F \u062E\u0631\u06CC\u062F \u0648\u062C\u0648\u062F \u0646\u062F\u0627\u0631\u062F`
+      });
+      return;
+    }
     if (quantity > product.stock) {
       res.status(400).json({
         success: false,
@@ -1391,7 +2209,7 @@ var updateCartItem = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0633\u0628\u062F \u062E\u0631\u06CC\u062F",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1437,7 +2255,7 @@ var removeFromCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062D\u0630\u0641 \u0622\u06CC\u062A\u0645 \u0627\u0632 \u0633\u0628\u062F \u062E\u0631\u06CC\u062F",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1465,7 +2283,7 @@ var clearCart = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u067E\u0627\u06A9\u0633\u0627\u0632\u06CC \u0633\u0628\u062F \u062E\u0631\u06CC\u062F",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1504,7 +2322,8 @@ var createOrder = async (req, res) => {
   try {
     const cartItems = await Cart.findAll({
       where: { user_id: userId },
-      transaction
+      transaction,
+      lock: transaction.LOCK.UPDATE
     });
     if (!cartItems || cartItems.length === 0) {
       await transaction.rollback();
@@ -1519,14 +2338,22 @@ var createOrder = async (req, res) => {
     for (const cartItem of cartItems) {
       const product = await Product.findByPk(cartItem.product_id, {
         transaction,
-        lock: true
-        // Lock row for update during transaction to prevent race conditions
+        lock: transaction.LOCK.UPDATE
+        // Lock product row for update during transaction to prevent race conditions
       });
       if (!product) {
         await transaction.rollback();
         res.status(400).json({
           success: false,
           message: `\u06A9\u0627\u0644\u0627\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${cartItem.product_id} \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u0645\u0648\u062C\u0648\u062F \u0646\u06CC\u0633\u062A \u06CC\u0627 \u062D\u0630\u0641 \u06AF\u0631\u062F\u06CC\u062F\u0647 \u0627\u0633\u062A`
+        });
+        return;
+      }
+      if (!product.is_active) {
+        await transaction.rollback();
+        res.status(400).json({
+          success: false,
+          message: `\u062B\u0628\u062A \u0633\u0641\u0627\u0631\u0634 \u0646\u0627\u0645\u0648\u0641\u0642 \u0628\u0648\u062F: \u06A9\u0627\u0644\u0627\u06CC \xAB${product.name}\xBB \u062F\u0631 \u062D\u0627\u0644 \u062D\u0627\u0636\u0631 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0627\u0633\u062A \u0648 \u0627\u0645\u06A9\u0627\u0646 \u062E\u0631\u06CC\u062F \u0622\u0646 \u0648\u062C\u0648\u062F \u0646\u062F\u0627\u0631\u062F`
         });
         return;
       }
@@ -1545,20 +2372,44 @@ var createOrder = async (req, res) => {
         product_id: product.id,
         quantity: cartItem.quantity,
         unit_price: realUnitPrice,
-        product_name: product.name
+        product_name: product.name,
+        productInstance: product
       });
     }
-    const trackingCode = generateTrackingCode();
-    const newOrder = await Order.create(
-      {
-        user_id: userId,
-        total_price: calculatedGrandTotal,
-        status: "pending",
-        shipping_address: shippingAddress,
-        tracking_code: trackingCode
-      },
-      { transaction }
-    );
+    let newOrder = null;
+    let attempts = 0;
+    const maxAttempts = 5;
+    while (!newOrder && attempts < maxAttempts) {
+      attempts++;
+      const trackingCode = generateTrackingCode();
+      try {
+        newOrder = await Order.create(
+          {
+            user_id: userId,
+            total_price: calculatedGrandTotal,
+            status: "pending",
+            shipping_address: shippingAddress,
+            tracking_code: trackingCode
+          },
+          { transaction }
+        );
+      } catch (err) {
+        const isConstraintError = err.name === "SequelizeUniqueConstraintError" || err.parent?.code === "ER_DUP_ENTRY" || err.message?.includes("tracking_code");
+        if (attempts < maxAttempts && isConstraintError) {
+          console.warn(`[Order] Duplicate tracking_code collision (${trackingCode}), retrying attempt ${attempts + 1}...`);
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!newOrder) {
+      await transaction.rollback();
+      res.status(500).json({
+        success: false,
+        message: "\u062E\u0637\u0627 \u062F\u0631 \u0627\u06CC\u062C\u0627\u062F \u06A9\u062F \u0631\u0647\u06AF\u06CC\u0631\u06CC \u0645\u0646\u062D\u0635\u0631\u200C\u0628\u0647\u200C\u0641\u0631\u062F \u0633\u0641\u0627\u0631\u0634 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647"
+      });
+      return;
+    }
     for (const item of itemsToCreate) {
       await OrderItem.create(
         {
@@ -1569,18 +2420,17 @@ var createOrder = async (req, res) => {
         },
         { transaction }
       );
-      const prod = await Product.findByPk(item.product_id, { transaction });
-      if (prod) {
-        const updatedStock = Math.max(0, prod.stock - item.quantity);
-        await prod.update({ stock: updatedStock }, { transaction });
-      }
+      await item.productInstance.decrement("stock", {
+        by: item.quantity,
+        transaction
+      });
     }
     await Cart.destroy({
       where: { user_id: userId },
       transaction
     });
     await transaction.commit();
-    console.log(`\u2705 [Order] Successfully placed order #${newOrder.id} (${trackingCode}) for user #${userId}`);
+    console.log(`\u2705 [Order] Successfully placed order #${newOrder.id} (${newOrder.tracking_code}) for user #${userId}`);
     const createdOrderWithDetails = await Order.findByPk(newOrder.id, {
       include: [
         {
@@ -1611,7 +2461,7 @@ var createOrder = async (req, res) => {
     }
     res.status(201).json({
       success: true,
-      message: `\u0633\u0641\u0627\u0631\u0634 \u0634\u0645\u0627 \u0628\u0627 \u06A9\u062F \u067E\u06CC\u06AF\u06CC\u0631\u06CC ${trackingCode} \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u0633\u06CC\u0633\u062A\u0645 \u062B\u0628\u062A \u06AF\u0631\u062F\u06CC\u062F`,
+      message: `\u0633\u0641\u0627\u0631\u0634 \u0634\u0645\u0627 \u0628\u0627 \u06A9\u062F \u067E\u06CC\u06AF\u06CC\u0631\u06CC ${newOrder.tracking_code} \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u0633\u06CC\u0633\u062A\u0645 \u062B\u0628\u062A \u06AF\u0631\u062F\u06CC\u062F`,
       data: formattedOrder || newOrder
     });
   } catch (error) {
@@ -1623,7 +2473,7 @@ var createOrder = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627\u06CC \u0633\u06CC\u0633\u062A\u0645\u06CC \u062F\u0631 \u062B\u0628\u062A \u062A\u0631\u0627\u06A9\u0646\u0634 \u0633\u0641\u0627\u0631\u0634 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1685,7 +2535,7 @@ var getOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u0648\u0627\u06A9\u0634\u06CC \u0641\u0647\u0631\u0633\u062A \u0633\u0641\u0627\u0631\u0634\u200C\u0647\u0627 \u0627\u0632 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1758,7 +2608,7 @@ var getOrderById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u062C\u0632\u0626\u06CC\u0627\u062A \u0633\u0641\u0627\u0631\u0634",
-      error: error.message
+      ...devError(error)
     });
   }
 };
@@ -1773,581 +2623,12 @@ var orders_default = router5;
 
 // server/routes/admin.ts
 var import_express6 = require("express");
-
-// server/middleware/upload.ts
-var import_multer = __toESM(require("multer"), 1);
-var import_path2 = __toESM(require("path"), 1);
-var import_fs2 = __toESM(require("fs"), 1);
-var productsUploadDir = import_path2.default.join(process.cwd(), "public", "uploads", "products");
-var msdsUploadDir = import_path2.default.join(process.cwd(), "public", "uploads", "msds");
-[productsUploadDir, msdsUploadDir].forEach((dir) => {
-  if (!import_fs2.default.existsSync(dir)) {
-    import_fs2.default.mkdirSync(dir, { recursive: true });
-  }
-});
-var storage = import_multer.default.diskStorage({
-  destination: (req, file, cb) => {
-    if (file.fieldname === "msds_file" || file.mimetype === "application/pdf") {
-      cb(null, msdsUploadDir);
-    } else {
-      cb(null, productsUploadDir);
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = import_path2.default.extname(file.originalname).toLowerCase();
-    const safeBaseName = import_path2.default.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
-    cb(null, `${file.fieldname}-${safeBaseName}-${uniqueSuffix}${ext}`);
-  }
-});
-var fileFilter = (req, file, cb) => {
-  const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
-  const allowedDocTypes = ["application/pdf"];
-  if (file.fieldname === "image" || file.fieldname === "image_file") {
-    if (allowedImageTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("\u0641\u0631\u0645\u062A \u062A\u0635\u0648\u06CC\u0631 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0641\u0642\u0637 \u0641\u0631\u0645\u062A\u200C\u0647\u0627\u06CC JPG\u060C PNG \u0648 WebP \u0645\u062C\u0627\u0632 \u0645\u06CC\u200C\u0628\u0627\u0634\u0646\u062F."));
-    }
-  } else if (file.fieldname === "msds_file") {
-    if (allowedDocTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("\u0641\u0631\u0645\u062A \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC MSDS \u0628\u0627\u06CC\u062F \u0641\u0627\u06CC\u0644 PDF \u0628\u0627\u0634\u062F."));
-    }
-  } else {
-    cb(null, true);
-  }
-};
-var buildAbsoluteUploadUrl = (req, relativePath) => {
-  if (!relativePath) return "";
-  if (relativePath.startsWith("http://") || relativePath.startsWith("https://")) {
-    return relativePath;
-  }
-  const cleanPath = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
-  const baseUrlEnv = process.env.BASE_URL || process.env.APP_URL || process.env.SERVER_URL || (process.env.NODE_ENV === "production" ? "https://api.shop.avinia.ir" : "");
-  if (baseUrlEnv) {
-    return `${baseUrlEnv.replace(/\/$/, "")}${cleanPath}`;
-  }
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const host = req.get("host") || "localhost:3000";
-  return `${protocol}://${host}${cleanPath}`;
-};
-var upload = (0, import_multer.default)({
-  storage,
-  fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024
-    // 10MB ceiling
-  }
-});
-var adminProductUpload = upload.fields([
-  { name: "image", maxCount: 1 },
-  { name: "image_file", maxCount: 1 },
-  { name: "msds_file", maxCount: 1 }
-]);
-
-// server/controllers/adminController.ts
-var import_sequelize5 = require("sequelize");
-var getDashboardStats = async (req, res) => {
-  try {
-    const lowStockThreshold = Number(req.query.low_stock_threshold) || 10;
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3);
-    const totalOrders = await Order.count();
-    const rawTotalRevenue = await Order.sum("total_price", {
-      where: {
-        status: {
-          [import_sequelize5.Op.ne]: "cancelled"
-        }
-      }
-    });
-    const totalRevenue = rawTotalRevenue ? Number(rawTotalRevenue) : 0;
-    const lowStockCount = await Product.count({
-      where: {
-        stock: {
-          [import_sequelize5.Op.lte]: lowStockThreshold
-        },
-        is_active: true
-      }
-    });
-    const newUsersLast30Days = await User.count({
-      where: {
-        created_at: {
-          [import_sequelize5.Op.gte]: thirtyDaysAgo
-        }
-      }
-    });
-    const totalProducts = await Product.count({ where: { is_active: true } });
-    const totalUsers = await User.count();
-    const ordersByStatus = {
-      pending: await Order.count({ where: { status: "pending" } }),
-      confirmed: await Order.count({ where: { status: "confirmed" } }),
-      processing: await Order.count({ where: { status: "processing" } }),
-      shipped: await Order.count({ where: { status: "shipped" } }),
-      delivered: await Order.count({ where: { status: "delivered" } }),
-      cancelled: await Order.count({ where: { status: "cancelled" } })
-    };
-    const lowStockProducts = await Product.findAll({
-      where: {
-        stock: { [import_sequelize5.Op.lte]: lowStockThreshold },
-        is_active: true
-      },
-      attributes: ["id", "name", "stock", "price", "brand", "product_type"],
-      order: [["stock", "ASC"]],
-      limit: 6
-    });
-    res.json({
-      success: true,
-      data: {
-        total_orders: totalOrders,
-        total_revenue: totalRevenue,
-        low_stock_count: lowStockCount,
-        new_users_30d: newUsersLast30Days,
-        total_products: totalProducts,
-        total_users: totalUsers,
-        orders_by_status: ordersByStatus,
-        low_stock_products: lowStockProducts,
-        calculated_at: (/* @__PURE__ */ new Date()).toISOString()
-      }
-    });
-  } catch (error) {
-    console.error("Error in getDashboardStats:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u0645\u062D\u0627\u0633\u0628\u0647 \u0622\u0645\u0627\u0631 \u062F\u0627\u0634\u0628\u0648\u0631\u062F \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
-    });
-  }
-};
-var adminCreateProduct = async (req, res) => {
-  try {
-    const {
-      name,
-      description,
-      price,
-      stock,
-      category_id,
-      product_type,
-      required_permit_number,
-      brand,
-      package_size,
-      image_url: bodyImageUrl,
-      msds_file_url: bodyMsdsUrl
-    } = req.body;
-    if (!name || !price || !category_id || !product_type) {
-      res.status(400).json({
-        success: false,
-        message: "\u0641\u06CC\u0644\u062F\u0647\u0627\u06CC \u0646\u0627\u0645 \u0645\u062D\u0635\u0648\u0644\u060C \u0642\u06CC\u0645\u062A\u060C \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0648 \u0646\u0648\u0639 \u0645\u062D\u0635\u0648\u0644 (\u06A9\u0648\u062F\u060C \u0633\u0645\u060C \u0628\u0630\u0631) \u0627\u0644\u0632\u0627\u0645\u06CC \u0647\u0633\u062A\u0646\u062F"
-      });
-      return;
-    }
-    const category = await Category.findByPk(category_id);
-    if (!category) {
-      res.status(400).json({
-        success: false,
-        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${category_id} \u062F\u0631 \u0633\u06CC\u0633\u062A\u0645 \u0645\u0648\u062C\u0648\u062F \u0646\u06CC\u0633\u062A`
-      });
-      return;
-    }
-    const files = req.files;
-    let finalImageUrl = bodyImageUrl || null;
-    let finalMsdsUrl = bodyMsdsUrl || null;
-    if (files) {
-      if (files["image"] && files["image"][0]) {
-        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image"][0].filename}`);
-      } else if (files["image_file"] && files["image_file"][0]) {
-        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image_file"][0].filename}`);
-      }
-      if (files["msds_file"] && files["msds_file"][0]) {
-        finalMsdsUrl = buildAbsoluteUploadUrl(req, `/uploads/msds/${files["msds_file"][0].filename}`);
-      }
-    } else if (req.file) {
-      if (req.file.mimetype === "application/pdf") {
-        finalMsdsUrl = buildAbsoluteUploadUrl(req, `/uploads/msds/${req.file.filename}`);
-      } else {
-        finalImageUrl = buildAbsoluteUploadUrl(req, `/uploads/products/${req.file.filename}`);
-      }
-    }
-    const newProduct = await Product.create({
-      name: name.trim(),
-      description: description ? description.trim() : null,
-      price: Number(price),
-      stock: Number(stock || 0),
-      category_id: Number(category_id),
-      product_type,
-      required_permit_number: required_permit_number ? required_permit_number.trim() : null,
-      brand: brand ? brand.trim() : null,
-      package_size: package_size ? package_size.trim() : null,
-      image_url: finalImageUrl,
-      msds_file_url: finalMsdsUrl,
-      is_active: true
-    });
-    const createdProduct = await Product.findByPk(newProduct.id, {
-      include: [{ model: Category, as: "category" }]
-    });
-    res.status(201).json({
-      success: true,
-      message: "\u0645\u062D\u0635\u0648\u0644 \u062C\u062F\u06CC\u062F \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u062B\u0628\u062A \u0634\u062F",
-      data: createdProduct
-    });
-  } catch (error) {
-    console.error("Error in adminCreateProduct:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062B\u0628\u062A \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
-    });
-  }
-};
-var adminUpdateProduct = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const product = await Product.findByPk(id);
-    if (!product) {
-      res.status(404).json({
-        success: false,
-        message: `\u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-      });
-      return;
-    }
-    const {
-      name,
-      description,
-      price,
-      stock,
-      category_id,
-      product_type,
-      required_permit_number,
-      brand,
-      package_size,
-      is_active,
-      image_url: bodyImageUrl,
-      msds_file_url: bodyMsdsUrl
-    } = req.body;
-    if (category_id && category_id !== product.category_id) {
-      const categoryExists = await Category.findByPk(category_id);
-      if (!categoryExists) {
-        res.status(400).json({
-          success: false,
-          message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${category_id} \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647 \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-        });
-        return;
-      }
-      product.category_id = Number(category_id);
-    }
-    if (name !== void 0) product.name = name.trim();
-    if (description !== void 0) product.description = description ? description.trim() : null;
-    if (price !== void 0) product.price = Number(price);
-    if (stock !== void 0) product.stock = Number(stock);
-    if (product_type !== void 0) product.product_type = product_type;
-    if (required_permit_number !== void 0) product.required_permit_number = required_permit_number ? required_permit_number.trim() : null;
-    if (brand !== void 0) product.brand = brand ? brand.trim() : null;
-    if (package_size !== void 0) product.package_size = package_size ? package_size.trim() : null;
-    if (is_active !== void 0) product.is_active = is_active === "true" || is_active === true;
-    if (bodyImageUrl !== void 0 && bodyImageUrl !== "") product.image_url = bodyImageUrl;
-    if (bodyMsdsUrl !== void 0 && bodyMsdsUrl !== "") product.msds_file_url = bodyMsdsUrl;
-    const files = req.files;
-    if (files) {
-      if (files["image"] && files["image"][0]) {
-        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image"][0].filename}`);
-      } else if (files["image_file"] && files["image_file"][0]) {
-        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${files["image_file"][0].filename}`);
-      }
-      if (files["msds_file"] && files["msds_file"][0]) {
-        product.msds_file_url = buildAbsoluteUploadUrl(req, `/uploads/msds/${files["msds_file"][0].filename}`);
-      }
-    } else if (req.file) {
-      if (req.file.mimetype === "application/pdf") {
-        product.msds_file_url = buildAbsoluteUploadUrl(req, `/uploads/msds/${req.file.filename}`);
-      } else {
-        product.image_url = buildAbsoluteUploadUrl(req, `/uploads/products/${req.file.filename}`);
-      }
-    }
-    await product.save();
-    const updatedProduct = await Product.findByPk(id, {
-      include: [{ model: Category, as: "category" }]
-    });
-    res.json({
-      success: true,
-      message: "\u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0634\u062F",
-      data: updatedProduct
-    });
-  } catch (error) {
-    console.error("Error in adminUpdateProduct:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
-    });
-  }
-};
-var adminDeleteProduct = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const product = await Product.findByPk(id);
-    if (!product) {
-      res.status(404).json({
-        success: false,
-        message: `\u0645\u062D\u0635\u0648\u0644 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-      });
-      return;
-    }
-    const orderItemsCount = await OrderItem.count({
-      where: { product_id: id }
-    });
-    if (orderItemsCount > 0) {
-      product.is_active = false;
-      await product.save();
-      res.json({
-        success: true,
-        action: "deactivated",
-        message: `\u0645\u062D\u0635\u0648\u0644 "${product.name}" \u062F\u0631 ${orderItemsCount} \u0633\u0637\u0631 \u0627\u0632 \u0633\u0641\u0627\u0631\u0634\u200C\u0647\u0627\u06CC \u067E\u06CC\u0634\u06CC\u0646 \u0645\u0634\u062A\u0631\u06CC\u0627\u0646 \u0648\u062C\u0648\u062F \u062F\u0627\u0631\u062F. \u0628\u0647 \u0645\u0646\u0638\u0648\u0631 \u062D\u0641\u0638 \u06CC\u06A9\u067E\u0627\u0631\u0686\u06AF\u06CC \u0633\u0648\u0627\u0628\u0642 \u062D\u0633\u0627\u0628\u062F\u0627\u0631\u06CC \u0648 \u0633\u0641\u0627\u0631\u0634\u0627\u062A\u060C \u0627\u06CC\u0646 \u06A9\u0627\u0644\u0627 \u062D\u0630\u0641 \u0641\u06CC\u0632\u06CC\u06A9\u06CC \u0646\u0634\u062F \u0648 \u0648\u0636\u0639\u06CC\u062A \u0622\u0646 \u0628\u0647 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644 (is_active = false) \u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627\u0641\u062A.`,
-        data: {
-          id: product.id,
-          name: product.name,
-          is_active: false,
-          order_references: orderItemsCount
-        }
-      });
-      return;
-    }
-    await product.destroy();
-    res.json({
-      success: true,
-      action: "deleted",
-      message: `\u0645\u062D\u0635\u0648\u0644 "${product.name}" \u0628\u0647 \u0637\u0648\u0631 \u06A9\u0627\u0645\u0644 \u0627\u0632 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633 \u062D\u0630\u0641 \u06AF\u0631\u062F\u06CC\u062F.`,
-      data: {
-        id: Number(id)
-      }
-    });
-  } catch (error) {
-    console.error("Error in adminDeleteProduct:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062D\u0630\u0641 \u06CC\u0627 \u063A\u06CC\u0631\u0641\u0639\u0627\u0644\u200C\u0633\u0627\u0632\u06CC \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
-    });
-  }
-};
-var adminCreateCategory = async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    if (!name || !name.trim()) {
-      res.status(400).json({
-        success: false,
-        message: "\u0646\u0627\u0645 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0644\u0632\u0627\u0645\u06CC \u0627\u0633\u062A"
-      });
-      return;
-    }
-    const existing = await Category.findOne({ where: { name: name.trim() } });
-    if (existing) {
-      res.status(400).json({
-        success: false,
-        message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0627\u06CC\u0646 \u0646\u0627\u0645 \u0627\u0632 \u0642\u0628\u0644 \u0648\u062C\u0648\u062F \u062F\u0627\u0631\u062F"
-      });
-      return;
-    }
-    const category = await Category.create({
-      name: name.trim(),
-      description: description ? description.trim() : null
-    });
-    res.status(201).json({
-      success: true,
-      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u062C\u062F\u06CC\u062F \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u06CC\u062C\u0627\u062F \u0634\u062F",
-      data: category
-    });
-  } catch (error) {
-    console.error("Error in adminCreateCategory:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062B\u0628\u062A \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
-    });
-  }
-};
-var adminUpdateCategory = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, description } = req.body;
-    const category = await Category.findByPk(id);
-    if (!category) {
-      res.status(404).json({
-        success: false,
-        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-      });
-      return;
-    }
-    if (name !== void 0) category.name = name.trim();
-    if (description !== void 0) category.description = description ? description.trim() : null;
-    await category.save();
-    res.json({
-      success: true,
-      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u0634\u062F",
-      data: category
-    });
-  } catch (error) {
-    console.error("Error in adminUpdateCategory:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0647\u200C\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06CC \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC",
-      error: error.message
-    });
-  }
-};
-var adminDeleteCategory = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const category = await Category.findByPk(id);
-    if (!category) {
-      res.status(404).json({
-        success: false,
-        message: `\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-      });
-      return;
-    }
-    const linkedProductsCount = await Product.count({
-      where: { category_id: id }
-    });
-    if (linkedProductsCount > 0) {
-      res.status(400).json({
-        success: false,
-        message: `\u0627\u0645\u06A9\u0627\u0646 \u062D\u0630\u0641 \u0627\u06CC\u0646 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0648\u062C\u0648\u062F \u0646\u062F\u0627\u0631\u062F\u061B \u062A\u0639\u062F\u0627\u062F ${linkedProductsCount} \u0645\u062D\u0635\u0648\u0644 \u0628\u0647 \u0622\u0646 \u0645\u062A\u0635\u0644 \u0627\u0633\u062A. \u0627\u0628\u062A\u062F\u0627 \u0645\u062D\u0635\u0648\u0644\u0627\u062A \u0631\u0627 \u0645\u0646\u062A\u0642\u0644 \u06CC\u0627 \u062D\u0630\u0641 \u06A9\u0646\u06CC\u062F.`
-      });
-      return;
-    }
-    await category.destroy();
-    res.json({
-      success: true,
-      message: "\u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u062D\u0630\u0641 \u0634\u062F",
-      data: { id: Number(id) }
-    });
-  } catch (error) {
-    console.error("Error in adminDeleteCategory:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062D\u0630\u0641 \u062F\u0633\u062A\u0647\u200C\u0628\u0646\u062F\u06CC \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
-    });
-  }
-};
-var adminGetAllOrders = async (req, res) => {
-  try {
-    const { status, search, page = "1", limit = "15" } = req.query;
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 15));
-    const offset = (pageNum - 1) * limitNum;
-    const whereConditions = {};
-    if (status && status !== "all") {
-      whereConditions.status = status;
-    }
-    if (search) {
-      const searchTerm = String(search).trim();
-      whereConditions[import_sequelize5.Op.or] = [
-        { tracking_code: { [import_sequelize5.Op.like]: `%${searchTerm}%` } },
-        { shipping_address: { [import_sequelize5.Op.like]: `%${searchTerm}%` } }
-      ];
-    }
-    const { count, rows } = await Order.findAndCountAll({
-      where: whereConditions,
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: ["id", "full_name", "phone_number", "farm_location"]
-        },
-        {
-          model: OrderItem,
-          as: "items",
-          include: [
-            {
-              model: Product,
-              as: "product",
-              attributes: ["id", "name", "product_type", "brand", "image_url"]
-            }
-          ]
-        }
-      ],
-      order: [["created_at", "DESC"]],
-      limit: limitNum,
-      offset,
-      distinct: true
-    });
-    res.json({
-      success: true,
-      total_count: count,
-      total_pages: Math.ceil(count / limitNum),
-      current_page: pageNum,
-      limit: limitNum,
-      data: rows
-    });
-  } catch (error) {
-    console.error("Error in adminGetAllOrders:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0644\u06CC\u0633\u062A \u0633\u0641\u0627\u0631\u0634\u200C\u0647\u0627\u06CC \u06A9\u0627\u0631\u0628\u0631\u0627\u0646 \u0627\u0632 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
-    });
-  }
-};
-var adminUpdateOrderStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-    if (!status || !validStatuses.includes(status)) {
-      res.status(400).json({
-        success: false,
-        message: `\u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A. \u0645\u0642\u0627\u062F\u06CC\u0631 \u0645\u062C\u0627\u0632: ${validStatuses.join("\u060C ")}`
-      });
-      return;
-    }
-    const order = await Order.findByPk(id, {
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: ["id", "full_name", "phone_number"]
-        }
-      ]
-    });
-    if (!order) {
-      res.status(404).json({
-        success: false,
-        message: `\u0633\u0641\u0627\u0631\u0634 \u0628\u0627 \u0634\u0646\u0627\u0633\u0647 ${id} \u06CC\u0627\u0641\u062A \u0646\u0634\u062F`
-      });
-      return;
-    }
-    const oldStatus = order.status;
-    order.status = status;
-    await order.save();
-    res.json({
-      success: true,
-      message: `\u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 ${order.tracking_code} \u0628\u0627 \u0645\u0648\u0641\u0642\u06CC\u062A \u0627\u0632 "${oldStatus}" \u0628\u0647 "${status}" \u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627\u0641\u062A`,
-      data: {
-        id: order.id,
-        tracking_code: order.tracking_code,
-        old_status: oldStatus,
-        new_status: order.status,
-        updated_at: order.updated_at
-      }
-    });
-  } catch (error) {
-    console.error("Error in adminUpdateOrderStatus:", error);
-    res.status(500).json({
-      success: false,
-      message: "\u062E\u0637\u0627 \u062F\u0631 \u062A\u063A\u06CC\u06CC\u0631 \u0648\u0636\u0639\u06CC\u062A \u0633\u0641\u0627\u0631\u0634 \u062F\u0631 \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
-    });
-  }
-};
-
-// server/routes/admin.ts
 var router6 = (0, import_express6.Router)();
 router6.use(authenticateToken);
 router6.use(requireAdmin);
 router6.get("/dashboard/stats", getDashboardStats);
-router6.post("/products", adminProductUpload, adminCreateProduct);
-router6.put("/products/:id", adminProductUpload, adminUpdateProduct);
+router6.post("/products", uploadRateLimiter, adminProductUpload, adminCreateProduct);
+router6.put("/products/:id", uploadRateLimiter, adminProductUpload, adminUpdateProduct);
 router6.delete("/products/:id", adminDeleteProduct);
 router6.post("/categories", adminCreateCategory);
 router6.put("/categories/:id", adminUpdateCategory);
@@ -2696,7 +2977,7 @@ router7.get("/status", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u06CC\u0627\u0641\u062A \u0648\u0636\u0639\u06CC\u062A \u067E\u0627\u06CC\u06AF\u0627\u0647 \u062F\u0627\u062F\u0647",
-      error: error.message
+      ...devError(error)
     });
   }
 });
@@ -2711,7 +2992,7 @@ router7.post("/sync", authenticateToken, requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u0647\u0645\u06AF\u0627\u0645\u200C\u0633\u0627\u0632\u06CC \u062C\u062F\u0627\u0648\u0644 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      ...devError(error)
     });
   }
 });
@@ -2727,7 +3008,7 @@ router7.post("/seed", authenticateToken, requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "\u062E\u0637\u0627 \u062F\u0631 \u062F\u0631\u062C \u062F\u0627\u062F\u0647\u200C\u0647\u0627\u06CC \u0646\u0645\u0648\u0646\u0647 \u062F\u0631 \u062F\u06CC\u062A\u0627\u0628\u06CC\u0633",
-      error: error.message
+      ...devError(error)
     });
   }
 });
@@ -2740,27 +3021,37 @@ var isProduction2 = process.env.NODE_ENV === "production";
 async function startServer() {
   const app = (0, import_express8.default)();
   app.set("trust proxy", 1);
+  app.use(
+    (0, import_helmet.default)({
+      contentSecurityPolicy: false,
+      // Preserves Vite SPA scripts, CSS, and HMR in dev and production
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      // Allows uploaded product images and MSDS documents cross-origin
+      frameguard: false
+      // Permits rendering inside AI Studio preview iframe
+    })
+  );
   const defaultAllowedOrigins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "https://shop.avinia.ir",
-    "https://api.shop.avinia.ir"
+    "https://api.shop.avinia.ir",
+    "*.run.app",
+    "*.googleusercontent.com"
   ];
   const envAllowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : [];
   if (isProduction2 && envAllowedOrigins.length === 0) {
     console.warn("\u26A0\uFE0F [CORS Warning] ALLOWED_ORIGINS environment variable is not defined in production.");
     console.warn(`\u26A0\uFE0F [CORS Warning] Falling back to default allowed production origins: ${defaultAllowedOrigins.join(", ")}`);
   }
-  const allowedOriginsList = envAllowedOrigins.length > 0 ? envAllowedOrigins : !isProduction2 ? ["*"] : defaultAllowedOrigins;
+  const allowedOriginsList = envAllowedOrigins.length > 0 ? envAllowedOrigins : defaultAllowedOrigins;
   app.use(
     (0, import_cors.default)({
       origin: (origin, callback) => {
         if (!origin) {
-          return callback(null, true);
-        }
-        if (!isProduction2 && allowedOriginsList.includes("*")) {
           return callback(null, true);
         }
         const isAllowed = allowedOriginsList.some((allowed) => {
@@ -2833,23 +3124,61 @@ async function startServer() {
     res.status(404).json({
       success: false,
       message: `\u0645\u0633\u06CC\u0631 API \u06CC\u0627\u0641\u062A \u0646\u0634\u062F: ${req.method} ${req.originalUrl}`,
-      error: "Not Found"
+      ...!isProduction2 && { error: "Not Found" }
     });
   });
-  app.use((err, req, res, next) => {
-    if (err && (err.message?.includes("CORS") || err.message?.includes("\u062F\u0627\u0645\u0646\u0647"))) {
+  app.use((err, req, res, _next) => {
+    if (err && (err.message?.includes("CORS") || err.message?.includes("\u0645\u0628\u062F\u0627") || err.message?.includes("\u062F\u0627\u0645\u0646\u0647"))) {
       res.status(403).json({
         success: false,
         message: err.message || "\u062F\u0633\u062A\u0631\u0633\u06CC \u0627\u0632 \u0627\u06CC\u0646 \u0645\u0628\u062F\u0623 (Origin) \u062A\u0648\u0633\u0637 \u0633\u06CC\u0627\u0633\u062A \u0627\u0645\u0646\u06CC\u062A\u06CC CORS \u0645\u0633\u062F\u0648\u062F \u0634\u062F",
-        error: "Forbidden - CORS Violation"
+        ...devError(err)
       });
       return;
     }
-    console.error("Unhandled server error:", err);
-    res.status(500).json({
+    if (err && (err instanceof import_multer2.default.MulterError || err.name === "MulterError")) {
+      let statusCode2 = 400;
+      let userMessage = "\u062E\u0637\u0627 \u062F\u0631 \u0628\u0627\u0631\u06AF\u0630\u0627\u0631\u06CC \u0641\u0627\u06CC\u0644 \u0627\u0631\u0633\u0627\u0644\u06CC";
+      if (err.code === "LIMIT_FILE_SIZE") {
+        statusCode2 = 413;
+        userMessage = "\u062D\u062C\u0645 \u0641\u0627\u06CC\u0644 \u0627\u0631\u0633\u0627\u0644\u06CC \u0628\u06CC\u0634 \u0627\u0632 \u0633\u0642\u0641 \u0645\u062C\u0627\u0632 (\u06F1\u06F0 \u0645\u06AF\u0627\u0628\u0627\u06CC\u062A) \u0627\u0633\u062A";
+      } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+        statusCode2 = 400;
+        userMessage = `\u0641\u06CC\u0644\u062F \u0627\u0631\u0633\u0627\u0644\u06CC \u0641\u0627\u06CC\u0644 \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A: ${err.field || "\u0646\u0627\u0645\u0634\u062E\u0635"}`;
+      } else if (err.code === "LIMIT_FILE_COUNT") {
+        statusCode2 = 400;
+        userMessage = "\u062A\u0639\u062F\u0627\u062F \u0641\u0627\u06CC\u0644\u200C\u0647\u0627\u06CC \u0627\u0631\u0633\u0627\u0644\u06CC \u0628\u06CC\u0634 \u0627\u0632 \u062D\u062F \u0645\u062C\u0627\u0632 \u0627\u0633\u062A";
+      }
+      console.warn(`\u26A0\uFE0F [Multer Error] ${err.code}: ${err.message}`);
+      res.status(statusCode2).json({
+        success: false,
+        message: userMessage,
+        ...devError(err)
+      });
+      return;
+    }
+    if (err && err.message && (err.message.includes("\u0641\u0631\u0645\u062A \u062A\u0635\u0648\u06CC\u0631") || err.message.includes("\u0641\u0631\u0645\u062A \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A"))) {
+      res.status(400).json({
+        success: false,
+        message: err.message,
+        ...devError(err)
+      });
+      return;
+    }
+    if (err instanceof SyntaxError && "body" in err) {
+      res.status(400).json({
+        success: false,
+        message: "\u0641\u0631\u0645\u062A \u062F\u0627\u062F\u0647\u200C\u0647\u0627\u06CC JSON \u0627\u0631\u0633\u0627\u0644\u06CC \u0646\u0627\u0645\u0639\u062A\u0628\u0631 \u0627\u0633\u062A",
+        ...devError(err)
+      });
+      return;
+    }
+    console.error("\u274C [Central Error Handler] Unhandled exception:", err);
+    const statusCode = err.status || err.statusCode || 500;
+    res.status(statusCode).json({
       success: false,
-      message: "\u062E\u0637\u0627\u06CC \u062F\u0627\u062E\u0644\u06CC \u0633\u0631\u0648\u0631 \u0631\u062E \u062F\u0627\u062F\u0647 \u0627\u0633\u062A",
-      error: err?.message || "Internal Server Error"
+      message: statusCode < 500 && err.message ? err.message : "\u062E\u0637\u0627\u06CC \u062F\u0627\u062E\u0644\u06CC \u0633\u0631\u0648\u0631 \u0631\u062E \u062F\u0627\u062F\u0647 \u0627\u0633\u062A",
+      ...devError(err)
     });
   });
   if (!isProduction2) {

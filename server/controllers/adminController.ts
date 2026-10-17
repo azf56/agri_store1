@@ -9,8 +9,9 @@ import {
   ProductType,
   OrderStatus,
 } from '../models/index.js';
-import { buildAbsoluteUploadUrl } from '../middleware/upload.js';
+import { buildAbsoluteUploadUrl, isValidMediaUrl } from '../middleware/upload.js';
 import { devError } from '../config/env.js';
+
 
 
 /**
@@ -134,6 +135,27 @@ export const adminCreateProduct = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // Validate string URLs provided in request body (must begin with http://, https://, or /uploads/)
+    if (bodyImageUrl && typeof bodyImageUrl === 'string' && bodyImageUrl.trim() !== '') {
+      if (!isValidMediaUrl(bodyImageUrl)) {
+        res.status(400).json({
+          success: false,
+          message: 'آدرس تصویر ارسالی نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود.',
+        });
+        return;
+      }
+    }
+
+    if (bodyMsdsUrl && typeof bodyMsdsUrl === 'string' && bodyMsdsUrl.trim() !== '') {
+      if (!isValidMediaUrl(bodyMsdsUrl)) {
+        res.status(400).json({
+          success: false,
+          message: 'آدرس برگه اطلاعات ایمنی MSDS نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود.',
+        });
+        return;
+      }
+    }
+
     // Verify category existence
     const category = await Category.findByPk(category_id);
     if (!category) {
@@ -143,6 +165,7 @@ export const adminCreateProduct = async (req: Request, res: Response): Promise<v
       });
       return;
     }
+
 
     // Process uploaded files if any
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
@@ -252,8 +275,28 @@ export const adminUpdateProduct = async (req: Request, res: Response): Promise<v
     if (package_size !== undefined) product.package_size = package_size ? package_size.trim() : null;
     if (is_active !== undefined) product.is_active = is_active === 'true' || is_active === true;
 
-    if (bodyImageUrl !== undefined && bodyImageUrl !== '') product.image_url = bodyImageUrl;
-    if (bodyMsdsUrl !== undefined && bodyMsdsUrl !== '') product.msds_file_url = bodyMsdsUrl;
+    if (bodyImageUrl !== undefined && bodyImageUrl !== null && typeof bodyImageUrl === 'string' && bodyImageUrl.trim() !== '') {
+      if (!isValidMediaUrl(bodyImageUrl)) {
+        res.status(400).json({
+          success: false,
+          message: 'آدرس تصویر ارسالی نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود.',
+        });
+        return;
+      }
+      product.image_url = bodyImageUrl.trim();
+    }
+
+    if (bodyMsdsUrl !== undefined && bodyMsdsUrl !== null && typeof bodyMsdsUrl === 'string' && bodyMsdsUrl.trim() !== '') {
+      if (!isValidMediaUrl(bodyMsdsUrl)) {
+        res.status(400).json({
+          success: false,
+          message: 'آدرس برگه اطلاعات ایمنی MSDS نامعتبر است. آدرس باید با http:// یا https:// یا /uploads/ شروع شود.',
+        });
+        return;
+      }
+      product.msds_file_url = bodyMsdsUrl.trim();
+    }
+
 
     // Check files
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;

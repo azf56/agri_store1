@@ -1949,7 +1949,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Image Upload */}
                   <div className="space-y-1.5">
-                    <label className="text-slate-700 font-medium">تصویر اصلی محصول (JPG, PNG, WebP):</label>
+                    <label className="text-slate-700 font-medium">تصویر اصلی محصول (JPG، PNG، WebP - حداکثر ۵ مگابایت):</label>
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
@@ -1977,7 +1977,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   {/* MSDS Upload */}
                   <div className="space-y-1.5">
-                    <label className="text-slate-700 font-medium">برگه اطلاعات ایمنی مواد شیمیایی MSDS (PDF):</label>
+                    <label className="text-slate-700 font-medium">برگه اطلاعات ایمنی مواد شیمیایی MSDS (فایل PDF - حداکثر ۱۰ مگابایت):</label>
+
                     <input
                       type="file"
                       accept="application/pdf"

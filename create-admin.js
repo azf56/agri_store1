@@ -1,46 +1,13 @@
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
 // server/scripts/createAdmin.ts
-var createAdmin_exports = {};
-__export(createAdmin_exports, {
-  createAdminUser: () => createAdminUser
-});
-module.exports = __toCommonJS(createAdmin_exports);
-var import_bcryptjs = __toESM(require("bcryptjs"), 1);
-var import_dotenv2 = __toESM(require("dotenv"), 1);
+import bcrypt from "bcryptjs";
+import dotenv2 from "dotenv";
 
 // server/config/database.ts
-var import_sequelize = require("sequelize");
-var import_dotenv = __toESM(require("dotenv"), 1);
-var import_path = __toESM(require("path"), 1);
-var import_fs = __toESM(require("fs"), 1);
-import_dotenv.default.config();
+import { Sequelize } from "sequelize";
+import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+dotenv.config();
 var isProduction = process.env.NODE_ENV === "production";
 var dbHost = process.env.DB_HOST || "localhost";
 var dbPort = parseInt(process.env.DB_PORT || "3306", 10);
@@ -49,13 +16,13 @@ var dbUser = process.env.DB_USER || "root";
 var dbPassword = process.env.DB_PASSWORD || "";
 var isMysqlConfigured = process.env.DB_DIALECT === "mysql" && (process.env.FORCE_MYSQL === "true" || process.env.DB_HOST && process.env.DB_HOST !== "localhost" && process.env.DB_HOST !== "127.0.0.1" || isProduction && process.env.DB_PASSWORD !== void 0);
 var dbDialect = isMysqlConfigured ? "mysql" : process.env.DB_DIALECT || "sqlite";
-var dataDir = import_path.default.join(process.cwd(), "data");
-if (!import_fs.default.existsSync(dataDir)) {
-  import_fs.default.mkdirSync(dataDir, { recursive: true });
+var dataDir = path.join(process.cwd(), "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 var sequelize;
 if (dbDialect === "mysql") {
-  sequelize = new import_sequelize.Sequelize(dbName, dbUser, dbPassword, {
+  sequelize = new Sequelize(dbName, dbUser, dbPassword, {
     host: dbHost,
     port: dbPort,
     dialect: "mysql",
@@ -81,9 +48,9 @@ if (dbDialect === "mysql") {
     }
   });
 } else {
-  sequelize = new import_sequelize.Sequelize({
+  sequelize = new Sequelize({
     dialect: "sqlite",
-    storage: import_path.default.join(dataDir, "agri_store.sqlite"),
+    storage: path.join(dataDir, "agri_store.sqlite"),
     logging: isProduction ? false : (msg) => console.log(`[SQLite]: ${msg}`),
     define: {
       timestamps: true,
@@ -104,18 +71,18 @@ async function testConnection() {
 }
 
 // server/models/index.ts
-var import_sequelize2 = require("sequelize");
-var Category = class extends import_sequelize2.Model {
+import { DataTypes, Model } from "sequelize";
+var Category = class extends Model {
 };
 Category.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     name: {
-      type: import_sequelize2.DataTypes.STRING(150),
+      type: DataTypes.STRING(150),
       allowNull: false,
       unique: true,
       validate: {
@@ -123,7 +90,7 @@ Category.init(
       }
     },
     description: {
-      type: import_sequelize2.DataTypes.TEXT,
+      type: DataTypes.TEXT,
       allowNull: true
     }
   },
@@ -134,28 +101,28 @@ Category.init(
     underscored: true
   }
 );
-var Product = class extends import_sequelize2.Model {
+var Product = class extends Model {
 };
 Product.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     name: {
-      type: import_sequelize2.DataTypes.STRING(255),
+      type: DataTypes.STRING(255),
       allowNull: false,
       validate: {
         notEmpty: true
       }
     },
     description: {
-      type: import_sequelize2.DataTypes.TEXT,
+      type: DataTypes.TEXT,
       allowNull: true
     },
     price: {
-      type: import_sequelize2.DataTypes.DECIMAL(14, 0),
+      type: DataTypes.DECIMAL(14, 0),
       // Prices in Iranian Tomans
       allowNull: false,
       validate: {
@@ -167,7 +134,7 @@ Product.init(
       }
     },
     stock: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
       validate: {
@@ -175,7 +142,7 @@ Product.init(
       }
     },
     category_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "categories",
@@ -185,36 +152,36 @@ Product.init(
       onDelete: "RESTRICT"
     },
     image_url: {
-      type: import_sequelize2.DataTypes.STRING(500),
+      type: DataTypes.STRING(500),
       allowNull: true
     },
     product_type: {
-      type: import_sequelize2.DataTypes.ENUM("\u06A9\u0648\u062F", "\u0633\u0645", "\u0628\u0630\u0631"),
+      type: DataTypes.ENUM("\u06A9\u0648\u062F", "\u0633\u0645", "\u0628\u0630\u0631"),
       allowNull: false,
       validate: {
         isIn: [["\u06A9\u0648\u062F", "\u0633\u0645", "\u0628\u0630\u0631"]]
       }
     },
     required_permit_number: {
-      type: import_sequelize2.DataTypes.STRING(100),
+      type: DataTypes.STRING(100),
       allowNull: true,
       comment: "\u0634\u0645\u0627\u0631\u0647 \u0645\u062C\u0648\u0632 \u0633\u0627\u0632\u0645\u0627\u0646 \u062D\u0641\u0638 \u0646\u0628\u0627\u062A\u0627\u062A \u06CC\u0627 \u0645\u0648\u0633\u0633\u0647 \u062A\u062D\u0642\u06CC\u0642\u0627\u062A \u062E\u0627\u06A9 \u0648 \u0622\u0628"
     },
     msds_file_url: {
-      type: import_sequelize2.DataTypes.STRING(500),
+      type: DataTypes.STRING(500),
       allowNull: true,
       comment: "\u0622\u062F\u0631\u0633 \u0641\u0627\u06CC\u0644 \u0628\u0631\u06AF\u0647 \u0627\u0637\u0644\u0627\u0639\u0627\u062A \u0627\u06CC\u0645\u0646\u06CC \u0645\u0648\u0627\u062F \u0634\u06CC\u0645\u06CC\u0627\u06CC\u06CC MSDS"
     },
     brand: {
-      type: import_sequelize2.DataTypes.STRING(120),
+      type: DataTypes.STRING(120),
       allowNull: true
     },
     package_size: {
-      type: import_sequelize2.DataTypes.STRING(100),
+      type: DataTypes.STRING(100),
       allowNull: true
     },
     is_active: {
-      type: import_sequelize2.DataTypes.BOOLEAN,
+      type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
       comment: "\u0648\u0636\u0639\u06CC\u062A \u0641\u0639\u0627\u0644/\u063A\u06CC\u0631\u0641\u0639\u0627\u0644 \u0628\u0648\u062F\u0646 \u0645\u062D\u0635\u0648\u0644 \u062F\u0631 \u06A9\u0627\u062A\u0627\u0644\u0648\u06AF"
@@ -227,17 +194,17 @@ Product.init(
     underscored: true
   }
 );
-var User = class extends import_sequelize2.Model {
+var User = class extends Model {
 };
 User.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     phone_number: {
-      type: import_sequelize2.DataTypes.STRING(20),
+      type: DataTypes.STRING(20),
       allowNull: false,
       unique: true,
       validate: {
@@ -245,20 +212,20 @@ User.init(
       }
     },
     password_hash: {
-      type: import_sequelize2.DataTypes.STRING(255),
+      type: DataTypes.STRING(255),
       allowNull: false
     },
     full_name: {
-      type: import_sequelize2.DataTypes.STRING(150),
+      type: DataTypes.STRING(150),
       allowNull: false
     },
     farm_location: {
-      type: import_sequelize2.DataTypes.STRING(255),
+      type: DataTypes.STRING(255),
       allowNull: true,
       comment: "\u0645\u0648\u0642\u0639\u06CC\u062A \u06CC\u0627 \u0627\u0633\u062A\u0627\u0646/\u0634\u0647\u0631 \u0645\u0632\u0631\u0639\u0647 \u06A9\u0634\u0627\u0648\u0631\u0632"
     },
     role: {
-      type: import_sequelize2.DataTypes.ENUM("customer", "admin"),
+      type: DataTypes.ENUM("customer", "admin"),
       allowNull: false,
       defaultValue: "customer"
     }
@@ -270,17 +237,17 @@ User.init(
     underscored: true
   }
 );
-var Order = class extends import_sequelize2.Model {
+var Order = class extends Model {
 };
 Order.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     user_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "users",
@@ -290,7 +257,7 @@ Order.init(
       onDelete: "RESTRICT"
     },
     total_price: {
-      type: import_sequelize2.DataTypes.DECIMAL(14, 0),
+      type: DataTypes.DECIMAL(14, 0),
       allowNull: false,
       validate: {
         min: 0
@@ -301,37 +268,44 @@ Order.init(
       }
     },
     status: {
-      type: import_sequelize2.DataTypes.ENUM("pending", "confirmed", "processing", "shipped", "delivered", "cancelled"),
+      type: DataTypes.ENUM("pending", "confirmed", "processing", "shipped", "delivered", "cancelled"),
       allowNull: false,
       defaultValue: "pending"
     },
     shipping_address: {
-      type: import_sequelize2.DataTypes.TEXT,
+      type: DataTypes.TEXT,
       allowNull: true
     },
     tracking_code: {
-      type: import_sequelize2.DataTypes.STRING(100),
-      allowNull: true
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      unique: true
     }
   },
   {
     sequelize,
     tableName: "orders",
     timestamps: true,
-    underscored: true
+    underscored: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["tracking_code"]
+      }
+    ]
   }
 );
-var OrderItem = class extends import_sequelize2.Model {
+var OrderItem = class extends Model {
 };
 OrderItem.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     order_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "orders",
@@ -341,7 +315,7 @@ OrderItem.init(
       onDelete: "CASCADE"
     },
     product_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "products",
@@ -351,7 +325,7 @@ OrderItem.init(
       onDelete: "RESTRICT"
     },
     quantity: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
       validate: {
@@ -359,7 +333,7 @@ OrderItem.init(
       }
     },
     unit_price: {
-      type: import_sequelize2.DataTypes.DECIMAL(14, 0),
+      type: DataTypes.DECIMAL(14, 0),
       allowNull: false,
       validate: {
         min: 0
@@ -377,17 +351,17 @@ OrderItem.init(
     underscored: true
   }
 );
-var Cart = class extends import_sequelize2.Model {
+var Cart = class extends Model {
 };
 Cart.init(
   {
     id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       autoIncrement: true,
       primaryKey: true
     },
     user_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "users",
@@ -397,7 +371,7 @@ Cart.init(
       onDelete: "CASCADE"
     },
     product_id: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: "products",
@@ -407,7 +381,7 @@ Cart.init(
       onDelete: "CASCADE"
     },
     quantity: {
-      type: import_sequelize2.DataTypes.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
       validate: {
@@ -482,7 +456,7 @@ Cart.belongsTo(Product, {
 });
 
 // server/scripts/createAdmin.ts
-import_dotenv2.default.config();
+dotenv2.config();
 async function createAdminUser(options) {
   console.log("\u{1F6E1}\uFE0F [Create-Admin Script] Running Admin Account Creation...");
   const args = process.argv.slice(2);
@@ -516,7 +490,7 @@ async function createAdminUser(options) {
   await testConnection();
   const existingUser = await User.findOne({ where: { phone_number: phone } });
   const saltRounds = 10;
-  const passwordHash = await import_bcryptjs.default.hash(password, saltRounds);
+  const passwordHash = await bcrypt.hash(password, saltRounds);
   if (existingUser) {
     console.log(`\u2139\uFE0F [Create-Admin] User with phone ${phone} already exists. Promoting role to 'admin' and updating password...`);
     existingUser.role = "admin";
@@ -560,7 +534,6 @@ if (process.argv[1]?.includes("createAdmin") || process.argv[1]?.includes("creat
     process.exit(1);
   });
 }
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
+export {
   createAdminUser
-});
+};

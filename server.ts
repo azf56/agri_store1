@@ -49,6 +49,8 @@ async function startServer() {
     'http://127.0.0.1:5173',
     'https://shop.avinia.ir',
     'https://api.shop.avinia.ir',
+    '*.run.app',
+    '*.googleusercontent.com',
   ];
 
   const envAllowedOrigins = process.env.ALLOWED_ORIGINS
@@ -60,10 +62,10 @@ async function startServer() {
     console.warn(`⚠️ [CORS Warning] Falling back to default allowed production origins: ${defaultAllowedOrigins.join(', ')}`);
   }
 
-  // In non-production, if ALLOWED_ORIGINS is not set, allow all for dev & preview iframe
+  // Active allowed origins: Use ALLOWED_ORIGINS if configured, otherwise default allowed list
   const allowedOriginsList = envAllowedOrigins.length > 0
     ? envAllowedOrigins
-    : (!isProduction ? ['*'] : defaultAllowedOrigins);
+    : defaultAllowedOrigins;
 
   app.use(
     cors({
@@ -73,10 +75,6 @@ async function startServer() {
           return callback(null, true);
         }
 
-        // Development mode wildcard support
-        if (!isProduction && allowedOriginsList.includes('*')) {
-          return callback(null, true);
-        }
 
         // Check if incoming origin matches allowed list
         const isAllowed = allowedOriginsList.some((allowed) => {
