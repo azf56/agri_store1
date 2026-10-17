@@ -2,11 +2,11 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import cors from 'cors';
-import helmet from 'helmet';
 import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { devError } from './server/config/env.js';
+import { securityHeaders } from './server/middleware/security.js';
 import categoriesRouter from './server/routes/categories.js';
 import productsRouter from './server/routes/products.js';
 import authRouter from './server/routes/auth.js';
@@ -31,15 +31,9 @@ async function startServer() {
   // Trust proxy for Cloud Run, Nginx, cPanel reverse proxy environments
   app.set('trust proxy', 1);
 
-  // Apply Security Headers via Helmet
-  app.use(
-    helmet({
-      contentSecurityPolicy: false, // Preserves Vite SPA scripts, CSS, and HMR in dev and production
-      crossOriginEmbedderPolicy: false,
-      crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allows uploaded product images and MSDS documents cross-origin
-      frameguard: false, // Permits rendering inside AI Studio preview iframe
-    })
-  );
+  // Apply Security Headers (Helmet with zero-crash fallback)
+  app.use(securityHeaders);
+
 
   // CORS Configuration
   const defaultAllowedOrigins = [

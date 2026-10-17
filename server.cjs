@@ -26,7 +26,6 @@ var import_express8 = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_cors = __toESM(require("cors"), 1);
-var import_helmet = __toESM(require("helmet"), 1);
 var import_multer2 = __toESM(require("multer"), 1);
 var import_vite = require("vite");
 var import_dotenv3 = __toESM(require("dotenv"), 1);
@@ -52,6 +51,56 @@ var devError = (err) => {
     return { error: err?.message || String(err) };
   }
   return {};
+};
+
+// server/middleware/security.ts
+var helmetInstance = null;
+var helmetAttempted = false;
+function getHelmetInstance() {
+  if (helmetAttempted) return helmetInstance;
+  helmetAttempted = true;
+  try {
+    const reqFn = typeof require === "function" ? require : null;
+    if (reqFn) {
+      const helmetModule = reqFn("helmet");
+      const helmetFn = helmetModule.default || helmetModule;
+      if (typeof helmetFn === "function") {
+        helmetInstance = helmetFn({
+          contentSecurityPolicy: false,
+          // Preserves Vite SPA scripts, CSS, and HMR
+          crossOriginEmbedderPolicy: false,
+          crossOriginResourcePolicy: { policy: "cross-origin" },
+          // Allows uploaded images & MSDS docs
+          frameguard: false
+          // Permits rendering in iframe preview
+        });
+      }
+    }
+  } catch {
+    console.warn(
+      '\u26A0\uFE0F [Security Warning] Package "helmet" is not installed in production node_modules.\n   Using native security headers fallback. Run "npm install" on your server to install all dependencies.'
+    );
+    helmetInstance = null;
+  }
+  return helmetInstance;
+}
+var securityHeaders = (req, res, next) => {
+  const helmet = getHelmetInstance();
+  if (helmet && typeof helmet === "function") {
+    return helmet(req, res, next);
+  }
+  res.removeHeader("X-Powered-By");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-DNS-Prefetch-Control", "off");
+  res.setHeader("X-Download-Options", "noopen");
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+  res.setHeader("X-XSS-Protection", "0");
+  res.setHeader("Origin-Agent-Cluster", "?1");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
 };
 
 // server/routes/categories.ts
@@ -3021,17 +3070,7 @@ var isProduction2 = process.env.NODE_ENV === "production";
 async function startServer() {
   const app = (0, import_express8.default)();
   app.set("trust proxy", 1);
-  app.use(
-    (0, import_helmet.default)({
-      contentSecurityPolicy: false,
-      // Preserves Vite SPA scripts, CSS, and HMR in dev and production
-      crossOriginEmbedderPolicy: false,
-      crossOriginResourcePolicy: { policy: "cross-origin" },
-      // Allows uploaded product images and MSDS documents cross-origin
-      frameguard: false
-      // Permits rendering inside AI Studio preview iframe
-    })
-  );
+  app.use(securityHeaders);
   const defaultAllowedOrigins = [
     "http://localhost:3000",
     "http://localhost:5173",
